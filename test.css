@@ -1,4 +1,8 @@
-.test {
-  color: red;
-  font-size: 200px;
+.page {
+    display: none;
 }
+
+.page.active {
+    display: block;
+}
+
