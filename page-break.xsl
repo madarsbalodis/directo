@@ -1,4 +1,1 @@
-
-<xsl:text disable-output-escaping="yes" | "no">
-  TEXT
-</xsl:text>
+<h1 style="font-size: 200px; color: red">Test</h1>
