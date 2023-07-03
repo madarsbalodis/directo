@@ -1,7 +1,7 @@
 USE [ocra_demo_madars_lv]
 GO
 
-/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 30/06/2023 16:40:36 ******/
+/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 03/07/2023 09:45:04 ******/
 SET ANSI_NULLS ON
 GO
 
@@ -32,6 +32,7 @@ declare @t as table (x xml)
 --declare @t4 as table (x xml)
 --declare @t5 as table (x xml)
 
+-- select * from int_import_dat
 insert into @t 
 select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat where cu=@key
 create table #kasutajad_maksud (kood nvarchar(32),valem nvarchar(32),rn int, algus datetime,maksuvaba decimal(15,2),lopp datetime,mv_algus datetime,mv_lopp datetime, exist int,ttype nvarchar(32), existPrev int, prevendDate datetime, prevenddate2 datetime)
@@ -52,28 +53,40 @@ tab.col.value('pers_kods[1]', 'nvarchar(255)') AS pers_code
 FROM @t 
 CROSS APPLY x.nodes('//nm_e_gramatinas/gigv') tab(col)
 
-
-insert #XMLRECORDS (perCode,recordValueTxt,StartDate,EndDate,RecordType)
+-- test
+;WITH Records AS (
+  SELECT 
+  tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_code 
+  ,tab.col.value('summa[1]', 'decimal(15,2)') as neapliekams_summa
+  ,tab.col.value('datums_no[1]', 'nvarchar(255)') as date1
+  ,tab.col.value('datums_lidz[1]', 'nvarchar(255)') as date2
+  ,'PPNM' as record_type
+  FROM @t
+  CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/prognozetie_mnm/prognozetais_mnm') tab(col)
+),
+RankedRecords AS (
+  SELECT *, ROW_NUMBER() OVER(PARTITION BY pers_code ORDER BY date1) AS rn
+  FROM Records
+)
+INSERT INTO #XMLRECORDS (perCode, recordValueDecimal, StartDate, EndDate, RecordType)
 SELECT 
-tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_kods
-,tab.col.value('vards_uzvards[1]', 'nvarchar(255)') AS apg_vards_uzvards 
-,tab.col.value('datums_no[1]', 'datetime') AS apg_sakums 
-,tab.col.value('datums_lidz[1]', 'datetime') as apg_beigas 
-,'APG'
-FROM @t 
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/apgadajamie/apgadajamais') tab(col)
+  pers_code, 
+  neapliekams_summa, 
+  CASE WHEN rn = 1 THEN date1 ELSE DATEADD(DAY, 1, EOMONTH(LAG(date2) OVER(PARTITION BY pers_code ORDER BY date1))) END, 
+  date2, 
+  record_type
+FROM RankedRecords
 
+--insert #XMLRECORDS (perCode,recordValueDecimal,StartDate,EndDate,RecordType)
+--SELECT 
+--tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_code 
+--,tab.col.value('summa[1]', 'decimal(15,2)') as neapliekams_summa
+--,tab.col.value('datums_no[1]', 'nvarchar(255)') as date1
+--,tab.col.value('datums_lidz[1]', 'nvarchar(255)') as date2
+--,'PPNM'
+--FROM @t
+--CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/prognozetie_mnm/prognozetais_mnm') tab(col)
 
-
-insert #XMLRECORDS (perCode,recordValueDecimal,StartDate,EndDate,RecordType)
-SELECT 
-tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_code 
-,tab.col.value('summa[1]', 'decimal(15,2)') as neapliekams_summa
-,tab.col.value('datums_no[1]', 'nvarchar(255)') as date1
-,tab.col.value('datums_lidz[1]', 'nvarchar(255)') as date2
-,'PPNM'
-FROM @t
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/prognozetie_mnm/prognozetais_mnm') tab(col)
 
 insert #XMLRECORDS (perCode,recordValueDecimal,StartDate,EndDate,RecordType)
 select isikukood,0,NULL,NULL,'PPNMB' from kasutajad where kood not in (select kood from kasutajad_maksud) and kood not in (select DirCode from #XMLRECORDS) and personal='1'
@@ -267,7 +280,6 @@ select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th c
                from #kasutajad_maksud_insert a where a.kood is not null
               FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX) ) +  
     N'</table>' ;
-	--select * from kasutajad_maksud where kood in (select kood from #kasutajad_maksud_insert)
 	select N'<h1>Atjaunojamie ieraksti</h1><table width="100%" border="1"><tr><th colspan="4"></th><th colspan="3" align="center">Neapliekams</th></tr><tr><th>Directo kods</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
 					td = a.kood, '',
 					td = a.valem, '',
@@ -293,446 +305,24 @@ select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th c
                from #kasutajad_maksud a where exist >=1
               FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX) ) +  
     N'</table>' ;
+
 if @do=2
 begin
 insert kasutajad_maksud (kood,valem, rn,algus,maksuvaba,lopp,mv_algus,mv_lopp)
 select kood,valem, rn,algus,maksuvaba,lopp,mv_algus,mv_lopp from #kasutajad_maksud where exist=0
+
 end
 SELECT * FROM #XMLRECORDS WHERE DirCode='D02883'
 drop table #PerDirReg
 drop table #XMLRECORDS 
-/*
-insert into @t 
-select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat
-declare @xml_data as table
-(
-pers_code nvarchar(255),
-vards_uzvards nvarchar(255),
-apl_reg_nr nvarchar(255),
-izd_dat datetime,
-objekts nvarchar(32),
-personals nvarchar(32),
-int_kods nvarchar(32),
-directo_kods nvarchar(32),
-inc_tax_free nvarchar(32),
-inc_tax_freeb nvarchar(32),
-closed nvarchar(32),
-exist nvarchar(32),
-lastrn decimal(15,0)
-)
-insert @xml_data
-SELECT 
-tab.col.value('pers_kods[1]', 'nvarchar(255)') AS pers_code 
-,tab.col.value('vards_uzvards[1]', 'nvarchar(255)') AS vards_uzvards 
-,tab.col.value('numurs_reg[1]', 'nvarchar(255)') as apl_reg_nr 
-,tab.col.value('datums_izd[1]', 'datetime') as izd_dat
-,'XML' as objekts
-,'1' as personals
-,tab.col.value('pers_kods[1]', 'nvarchar(255)') AS pers_code
-,(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)')) as directo_kods
-,isnull((select meetod_tulumaks from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)')),'1') as inc_tax_free
-,'2'
-,(select suletud from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)')) as closed
-,isnull((select top 1 'Yes' 
-  from kasutajad_dokumendid 
-  where 
-  kasutaja=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)'))
-  and tyyp='NGRA' and aeg1=tab.col.value('datums_izd[1]', 'datetime') and dokument=tab.col.value('numurs_reg[1]', 'nvarchar(255)')),'No')
-,isnull((select max(rn) from kasutajad_dokumendid where kasutaja=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)'))),0)
-FROM @t 
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv') tab(col)
+
+-- delete from kasutajad_maksud
 
 
-
-
-
-
-
-insert into @t2
-select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat
-declare @xml_data2 as table
-(
-	apg_vards_uzvards nvarchar(255)
-	,apg_sakums datetime
-	,apg_beigas datetime
-	,ieregistrets datetime
-	,pers_kods nvarchar(32)
-	,directo_kods nvarchar(32)
-	,closed nvarchar(32)
-    ,exist nvarchar(32)
-    ,lastrn decimal(15,0)
-)
-insert @xml_data2
-SELECT 
-tab.col.value('vards_uzvards[1]', 'nvarchar(255)') AS apg_vards_uzvards 
-,tab.col.value('datums_no[1]', 'datetime') AS apg_sakums 
-,tab.col.value('datums_lidz[1]', 'datetime') as apg_beigas 
-,tab.col.value('datums_ier[1]', 'datetime') as ieregistrets
-,tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_kods
-,(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) as directo_kods
-,(select suletud from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) as closed
-,isnull(
-    (select top 1 'Yes' 
-  from kasutajad_isikud 
-  where 
-  kasutaja=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)'))
-  and tyyp='APG'
-  and aktiivne='True'
-  and nimi=tab.col.value('vards_uzvards[1]', 'nvarchar(255)')
-   and aeg1=tab.col.value('datums_no[1]', 'datetime')
-   and aeg2=tab.col.value('datums_lidz[1]', 'datetime'))
-   
-    ,'No')
-    ,isnull((select max(rn) from kasutajad_isikud where kasutaja=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('pers_kods[1]', 'nvarchar(255)'))),0)
-FROM @t2 
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/apgadajamie/apgadajamais') tab(col)
-
-
-
-
-
-
-insert into @t4
-select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat
-declare @xml_data4 as table
-(
-pers_code nvarchar(255),
-directo_code nvarchar(255),
-date1 datetime,
-date2 datetime,
-neapliekams_summa decimal(15,2)
-,closed nvarchar(32)
-,rn nvarchar(10)
-,rnd nvarchar(10)
-)
-insert @xml_data4
-SELECT 
-tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_code 
-,(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) as directo_kods
-,tab.col.value('datums_no[1]', 'nvarchar(255)') as date1
-,tab.col.value('datums_lidz[1]', 'nvarchar(255)') as date2
-,tab.col.value('summa[1]', 'decimal(15,2)') as neapliekams_summa
-,(select suletud from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) as closed
-,(select count(rn) from kasutajad_maksud  where kood=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)'))) as rn
-,(select count(rn) from kasutajad_maksud  where kood=(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) and valem='IIN2018' and algus=tab.col.value('datums_no[1]', 'nvarchar(255)') and lopp=tab.col.value('datums_lidz[1]', 'nvarchar(255)')  ) as rd
-FROM @t4
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/prognozetie_mnm/prognozetais_mnm') tab(col)
-
-
---pensionari
-insert into @t5
-select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat
-declare @xml_data5 as table
-(
-pers_code nvarchar(255),
-directo_code nvarchar(255),
-date1 datetime,
-date2 datetime,
-veids nvarchar(255)
-)
-insert @xml_data5
-SELECT 
-tab.col.value('../../pers_kods[1]', 'nvarchar(255)') AS pers_code 
-,(select kood from kasutajad where replace(isikukood,'-','')=tab.col.value('../../pers_kods[1]', 'nvarchar(255)')) as directo_kods
-,tab.col.value('datums_no[1]', 'nvarchar(255)') as date1
-,tab.col.value('datums_lidz[1]', 'nvarchar(255)') as date2
-,tab.col.value('veids[1]', 'nvarchar(255)') as veids
-FROM @t5
-CROSS APPLY x.nodes('//nm_e_gramatinas/gigv/pensijas/pensija') tab(col)
-if ((select count(pers_code) from @xml_data5)>0)
-begin
-declare @pens TABLE
-(
-  pers_code nvarchar(32),
-  directo_code nvarchar(32),
-  pensionars_dat1_reg datetime,
-  pensionars_dat1_izd datetime,
-  pensionars_dat2_izd datetime,
-  pensionars_dat1_2gr datetime,
-  pensionars_dat2_2gr datetime,
-  pensionars_dat1_3gr datetime,
-  pensionars_dat2_3gr datetime 
-)
-insert @pens
-select 
-  distinct pers_code
-  , directo_code
-  , (select top 1 date1 from @xml_data5 z where (z.veids=N'Pensionārs' or z.veids=N'Pensionārs (citas valsts)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat1_reg
-  , (select top 1 date1 from @xml_data5 z where (z.veids=N'Pensija (izdienas pensijas saņēmēji)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat1_izd
-  , (select top 1 date2 from @xml_data5 z where (z.veids=N'Pensija (izdienas pensijas saņēmēji)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat2_izd
-   , (select top 1 date1 from @xml_data5 z where (z.veids=N'Pensijas saņēmējs (2. grupas invaliditāte)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat1_2gr
-    , (select top 1 date2 from @xml_data5 z where (z.veids=N'Pensijas saņēmējs (2. grupas invaliditāte)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat2_2gr
-      , (select top 1 date1 from @xml_data5 z where (z.veids=N'Pensijas saņēmējs (3. grupas invaliditāte)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat1_3gr
-    , (select top 1 date2 from @xml_data5 z where (z.veids=N'Pensijas saņēmējs (3. grupas invaliditāte)')  and  z.pers_code=a.pers_code order by date1 desc) as pensionars_dat2_3gr
-from @xml_data5 a 
-group by pers_code,directo_code
-select * from  @pens
-select distinct veids from  @xml_data5
-
-end
-
-select top 1 N'<p align="center"><b>Nodokļu grāmatiņas dati</b><p>'
-
-SELECT 'xml satur:<b>',count(pers_code),'ierakstus</b>' from @xml_data
-
-SELECT 'xml nav atpazīti :<b>',count(pers_code),'ieraksti</b>' from @xml_data where directo_kods is null
-
---select * from @xml_data where directo_kods is not null
-if ((select count(pers_code) from @xml_data where directo_kods is null)> 0 )
-  begin
-    select * from @xml_data where directo_kods is null
-  end
-
-select 'Pievienojami ieraksti:',count(pers_code), 'ieraksti' from @xml_data where closed is null and exist='No'
-
-if ((select count(pers_code) from @xml_data where directo_kods is not null and closed is null and exist='No') > 0 )
-  begin
-    select * from @xml_data where directo_kods is not  null and closed is null and exist='No' 
-  end
-
-  select 'Eksistējoši ieraksti, kurus nemaina', count(pers_code), 'ieraksti' from @xml_data where (closed='1') or (closed is null and exist='Yes')
-
-if ((select count(pers_code) from @xml_data where directo_kods is not null and (closed='1') or (closed is null and exist='Yes'))> 0 )
-  begin
-    select * from @xml_data where directo_kods is not  null and (closed='1') or (closed is null and exist='Yes')
-  end
-
-
-
-
-select top 1 N'<p align="center">Apgādājamās personas</p>' from @xml_data2
-select 'XML satur', count(apg_vards_uzvards), 'ierakstus par apgādāmajām personām' from @xml_data2
---select * from @xml_data2
-if ((select count(apg_vards_uzvards) from @xml_data2 where exist='No')>0)
-BEGIN
-select 'XML satur', count(apg_vards_uzvards), 'ierakstus par apgādāmajām personām, kuras nav iereģistrētas DIRECTO un darbinieks ir darba attiecībās' from @xml_data2 where exist='No' and closed is null
-select * from @xml_data2 where exist='No' and closed is null
-end
-if ((select count(apg_vards_uzvards) from @xml_data2 where exist='No' and closed is not null)>0)
-BEGIN
-select 'XML satur', count(apg_vards_uzvards), 'ierakstus par apgādāmajām personām, kuras nav iereģistrētas DIRECTO un darbinieki nav darba attiecībās' from @xml_data2 where exist='No' and closed is not null
-end
-select 'Nav atjaunoti', count(pers_kods), 'ieraksti' from @xml_data2 where closed is null and exist='Yes'
-
-
-select top 1 N'<p align="center">Neapliekamais minimums</p>' from @xml_data4
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu' from @xml_data4
-IF ((select count(pers_code) from @xml_data4 where rnd='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras ir Directo, bet neapliekamis Min nav ievadīts' from @xml_data4 where rnd='0' and directo_code is not null and directo_code not in (select directo_code from @pens)
-end
-IF ((select count(pers_code) from @xml_data4 where rnd='0' and directo_code is null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav Directo, bet neapliekamis Min norādīts EDS' from @xml_data4 where rnd='0' and directo_code is null and directo_code not in (select directo_code from @pens)
-end
-IF ((select count(pers_code) from @xml_data4 where rnd!='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav nepieciešams atjaunot, jo Directo dati sakrīt ar EDS' from @xml_data4 where rnd!='0' and directo_code is not null and directo_code not in (select directo_code from @pens)
-end
-select * from @xml_data4 where rnd='0' and directo_code is not null and directo_code not in (select directo_code from @pens)
-declare @regpens TABLE
-(
-pers_code nvarchar(32),
-directo_code nvarchar(32),
-datums datetime,
-rnd decimal(15,0)
-)
-insert @regpens
-select pers_code, directo_code, pensionars_dat1_reg,(select count(rn) from kasutajad_maksud  where kood=z.directo_code and valem='IIN_PENS') from @pens z where pensionars_dat1_reg	<= @datenow
-
-
-select top 1 N'<p align="center">Neapliekamais minimums pensionāri</p>' from @regpens 
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu pensionāriem' from @regpens
-select * from @regpens
-IF ((select count(pers_code) from @regpens where rnd='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras ir Directo, bet neapliekamis Min nav ievadīts' from @regpens where rnd='0' and  directo_code is not null 
-end
-IF ((select count(pers_code) from @regpens where rnd='0' and directo_code is null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav Directo, bet neapliekamis Min norādīts EDS' from @regpens where rnd='0'and  directo_code is null 
-end
-IF ((select count(pers_code) from @regpens where rnd!='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav nepieciešams atjaunot, jo Directo dati sakrīt ar EDS' from @regpens where rnd!='0' and   directo_code is not null 
-end
-
-declare @izdpens TABLE
-(
-pers_code nvarchar(32),
-directo_code nvarchar(32),
-datums datetime,
-datums2 datetime,
-rnd decimal(15,0)
-)
-insert @izdpens
-select pers_code
-, directo_code
-, pensionars_dat1_izd
-, pensionars_dat2_izd
-,(select count(rn) from kasutajad_maksud  where kood=z.directo_code and valem='IIN_PENS') from @pens z where (pensionars_dat1_izd	<= @datenow or pensionars_dat2_izd <= @datenow )
-
-
-select top 1 N'<p align="center">Neapliekamais minimums izdienas pensionāri</p>' from @izdpens 
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu pensionāriem' from @izdpens
-select * from @izdpens
-IF ((select count(pers_code) from @izdpens where rnd='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras ir Directo, bet neapliekamis Min nav ievadīts' from @izdpens where rnd='0' and  directo_code is not null 
-end
-IF ((select count(pers_code) from @izdpens where rnd='0' and directo_code is null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav Directo, bet neapliekamis Min norādīts EDS' from @izdpens where rnd='0'and  directo_code is null 
-end
-IF ((select count(pers_code) from @izdpens where rnd!='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav nepieciešams atjaunot, jo Directo dati sakrīt ar EDS' from @izdpens where rnd!='0' and   directo_code is not null 
-end
-
-
-declare @pens1_2 TABLE
-(
-pers_code nvarchar(32),
-directo_code nvarchar(32),
-datums datetime,
-datums2 datetime,
-rnd decimal(15,0)
-)
-insert @pens1_2
-select pers_code
-, directo_code
-, pensionars_dat1_2gr
-, pensionars_dat2_2gr	
-,(select count(rn) from kasutajad_maksud  where kood=z.directo_code and valem='IIN_INV_I_II') from @pens z where (pensionars_dat1_2gr	<= @datenow or pensionars_dat2_2gr <= @datenow )
-
-
-select top 1 N'<p align="center">Neapliekamais minimums 1. un 2. grupas pensijas saņēmēji</p>' from @pens1_2 
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu pensionāriem' from @pens1_2
-select * from @pens1_2
-IF ((select count(pers_code) from @pens1_2 where rnd='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras ir Directo, bet neapliekamis Min nav ievadīts' from @pens1_2 where rnd='0' and  directo_code is not null 
-end
-IF ((select count(pers_code) from @pens1_2 where rnd='0' and directo_code is null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav Directo, bet neapliekamis Min norādīts EDS' from @pens1_2 where rnd='0'and  directo_code is null 
-end
-IF ((select count(pers_code) from @pens1_2 where rnd!='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav nepieciešams atjaunot, jo Directo dati sakrīt ar EDS' from @pens1_2 where rnd!='0' and   directo_code is not null 
-end
-
-
-declare @pens3 TABLE
-(
-pers_code nvarchar(32),
-directo_code nvarchar(32),
-datums datetime,
-datums2 datetime,
-rnd decimal(15,0)
-)
-insert @pens3
-select pers_code
-, directo_code
-, pensionars_dat1_3gr
-, pensionars_dat2_3gr	
-,(select count(rn) from kasutajad_maksud  where kood=z.directo_code and valem='IIN_INV_III') from @pens z where (pensionars_dat1_3gr	<= @datenow or pensionars_dat2_3gr <= @datenow )
-
-
-select top 1 N'<p align="center">Neapliekamais minimums 3 grupas pensijas saņēmēji</p>' from @pens3 
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu pensionāriem' from @pens3
-select * from @pens3
-IF ((select count(pers_code) from @pens3 where rnd='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras ir Directo, bet neapliekamis Min nav ievadīts' from @pens3 where rnd='0' and  directo_code is not null 
-end
-IF ((select count(pers_code) from @pens3 where rnd='0' and directo_code is null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav Directo, bet neapliekamis Min norādīts EDS' from @pens3 where rnd='0'and  directo_code is null 
-end
-IF ((select count(pers_code) from @pens3 where rnd!='0' and directo_code is not null )>0)
-BEGIN
-select 'XML satur', count(pers_code), N'ierakstus par neapliekamo minimumu, personām, kuras nav nepieciešams atjaunot, jo Directo dati sakrīt ar EDS' from @pens3 where rnd!='0' and   directo_code is not null 
-end
-
-if (@do='2')
---Pievieno Algas grāmatiņas datus--
-BEGIN
-insert kasutajad_dokumendid (kasutaja,dokument, aeg1, tyyp, rn)
-select directo_kods,apl_reg_nr,izd_dat, 'NGRA',lastrn+1 from @xml_data where closed is null and exist='No' and directo_kods is not null
-
-update kasutajad
-set meetod_tulumaks=z.inc_tax_freeb
-from (select directo_kods, inc_tax_freeb from @xml_data where (closed is null and exist='No' and directo_kods is not null)) z
-WHERE
-kasutajad.kood=z.directo_kods
-
-update kasutajad
-set meetod_tulumaks=z.inc_tax_freeb
-from (select directo_kods, inc_tax_freeb from @xml_data where closed is null and exist='Yes' and inc_tax_free='1' and inc_tax_freeb='2') z
-WHERE
-kasutajad.kood=z.directo_kods
-
---Pievieno Apgādājamo personu datus datus--
-insert kasutajad_isikud (kasutaja,tyyp, aeg1, aeg2, aktiivne, nimi)
-select directo_kods,'APG',apg_sakums,apg_beigas, 'True', apg_vards_uzvards from @xml_data2 where closed is null and directo_kods is not null
-
-
---Pievienot Neapliekamā minimuma datus IIN2018--
-
-insert into kasutajad_maksud (kood, valem, maksuvaba, algus, lopp, rn)
-select directo_code, 'IIN2018',neapliekams_summa, date1, date2, '1' from @xml_data4 where rnd='0' and directo_code not in (select directo_code from @pens)
-
-update kasutajad_maksud set rn='2' where valem like '%IIN%' and lopp is null
-
---Pievienot Neapliekamā minimuma datus IIN_PENS--
-insert into kasutajad_maksud (kood, valem, algus, rn)
-select directo_code, 'IIN_PENS', datums, '1' from @regpens where rnd='0'
-
---Pievienot Neapliekamā minimuma datus IIN_PENS--
-insert into kasutajad_maksud (kood, valem, algus, rn)
-select directo_code, 'IIN_PENS', datums, '1' from @regpens where rnd='0'
-
---Pievienot Neapliekamā minimuma datus IIN_PENS (izdienas)--
-insert into kasutajad_maksud (kood, valem, algus, lopp, rn)
-select directo_code, 'IIN_PENS', datums, datums2, '1' from @izdpens where rnd='0'
-
---Pievienot Neapliekamā minimuma datus IIN_INV_I_II (izdienas)--
-insert into kasutajad_maksud (kood, valem, algus, lopp, rn)
-select directo_code, 'IIN_INV_I_II', datums, datums2, '1' from @pens1_2 where rnd='0'
-
---Pievienot Neapliekamā minimuma datus IIN_INV_III (izdienas)--
-insert into kasutajad_maksud (kood, valem, algus, lopp, rn)
-select directo_code, 'IIN_INV_III', datums, datums2, '1' from @pens3 where rnd='0'
-*/
 delete from int_import_dat where dat like '%NM_e_gramatina%' and cu=@key
 
 
 select N'Darīts'
---END
-
-/*
-
-*/
-/*
-
-
-update kasutajad_maksud
- set algus=z.mv_algus, lopp=z.mv_lopp, mv_algus=NULl, mv_lopp=NULL from
-  (select kood, valem, rn, mv_algus, mv_lopp from kasutajad_maksud where valem='IIN2018' and rn='1') z where kasutajad_maksud.valem=z.valem and kasutajad_maksud.rn=z.rn and kasutajad_maksud.kood=z.kood*/
-  
-
---select directo_code, 'IIN2018',neapliekams_summa, date1, date2, rn+1 from @xml_data4 
-
-/*
-delete from kasutajad_dokumendid where tyyp='NGRA'
-delete from kasutajad_isikud where tyyp='NGRA'
-delete from kasutajad_maksud where valem='IIN2018'
-*/
-
-
-
-
 
 GO
 
