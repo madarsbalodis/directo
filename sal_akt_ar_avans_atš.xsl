@@ -4,12 +4,11 @@
     exclude-result-prefixes="msxsl js fo">
     <xsl:output method="html" />
 
-   <!-- Muenchian grouping -->
-  <xsl:key name="categoryKey" match="/documents/document/kliendi_ettemaksud2/kliendi_ettemaks2" use="klient_kood" />
-<!--// Muenchian grouping -->
-
     <xsl:decimal-format name="ocra" decimal-separator='.' grouping-separator=' ' />
     <xsl:key name="unique_currency" match="/documents/document/kliendi_arved/kliendi_arve" use="valuuta" />
+
+    <!-- Define the key for grouping -->
+    <xsl:key name="klient_kood_konto" match="kliendi_ettemaks2" use="concat(klient_kood, '+', konto)" />
 
     <xsl:template match="/">
 
@@ -1017,18 +1016,20 @@
                                             style="border-collapse: collapse; border-left: 1px solid #000000; border-right: 1px solid #000000; border-top: 1px solid #000000; border-bottom: 1px solid #000000"
                                             bordercolor="#111111">
 
-                                            
-                                            <xsl:for-each select="kliendi_ettemaksud2/kliendi_ettemaks2[generate-id() = generate-id(key('categoryKey', klient_kood)[1])]">
-                                                <xsl:variable name="klientId" select="klient_kood" />
-                                                <xsl:variable name="categorySum" select="sum(key('categoryKey', klient_kood)/laek)" />
+                                            <xsl:for-each select="kliendi_ettemaksud2/kliendi_ettemaks2[generate-id() = generate-id(key('klient_kood_konto', concat(klient_kood, '+', konto))[1])]">
+                                                <xsl:variable name="konto_nimi" select="konto_nimi" />
+                                                <xsl:variable name="konto" select="konto" />
+                                                <xsl:variable name="laek" select="sum(key('klient_kood_konto', concat(klient_kood, '+', konto))/laek) * -1" />
 
-                                                <xsl:for-each select="key('categoryKey', klient_kood)">
-                                                            <b><xsl:value-of select="concat(konto_nimi, ': ', laek * (-1))" /></b>
-                                                            <br />
-                                                </xsl:for-each>
 
+                                                <xsl:if test="normalize-space($konto_nimi) != '' and $laek != 0">
+                                                    <b>
+                                                        <xsl:value-of select="concat($konto_nimi, ': ', format-number($laek * kurss, '0.00'))" />
+                                                    </b>
+                                                    <br />
+                                                </xsl:if>
                                             </xsl:for-each>
-
+                                            
                                         </td>
                                     </tr>
                                 </xsl:when>
