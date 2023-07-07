@@ -1,17 +1,12 @@
 USE [ocra_demo_madars_lv]
 GO
 
-/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 03/07/2023 09:45:04 ******/
+/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 07/07/2023 12:21:58 ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
-
-
-
-
-
 
 
 --insert int_hooldus_klient (rn, nimi, tyyp, aru_tyyp) values ('edsimport', N'EDS faila imports', 'import', 'personal')
