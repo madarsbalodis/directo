@@ -1,13 +1,6 @@
-USE [ocra_leta_lv]
+--server DIRECTO19B
+USE ocra_leta_lv
 GO
-
-/****** Object:  StoredProcedure [dbo].[int_hooldus_klient_ddz_tb]    Script Date: 07/07/2023 11:41:19 ******/
-SET ANSI_NULLS ON
-GO
-
-SET QUOTED_IDENTIFIER ON
-GO
-
 
 
 
@@ -98,7 +91,6 @@ set @x=@x+1
 END
 CLOSE tellimused
 DEALLOCATE tellimused
-
 
 
 
@@ -300,7 +292,5 @@ drop table #person_days
 
 
 
-
-GO
 
 
