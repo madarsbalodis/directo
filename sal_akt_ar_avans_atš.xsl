@@ -8,7 +8,9 @@
     <xsl:key name="unique_currency" match="/documents/document/kliendi_arved/kliendi_arve" use="valuuta" />
 
     <!-- Define the key for grouping -->
-    <xsl:key name="klient_kood_konto" match="kliendi_ettemaks2" use="concat(klient_kood, '+', konto)" />
+    <xsl:key name="konto" match="kliendi_ettemaks2" use="konto" />
+       
+    <xsl:key name="customer" match="/documents/document" use="klient_kood" />
 
     <xsl:template match="/">
 
@@ -165,8 +167,80 @@
         </head>
 
         <body>
+    <xsl:variable name="DistinctAccount">
+    <accounts>
+    <xsl:for-each select="/documents/document/kliendi_ettemaksud2/kliendi_ettemaks2[count(. | key('konto',konto)[1])=1 and tyyp='Laekumine']">
+            <account>
+                <code><xsl:value-of select="konto"/></code>
+                <name><xsl:value-of select="konto_nimi"/></name>
+            </account>
+  </xsl:for-each>
+      </accounts>
+    </xsl:variable>
+<xsl:variable name="customerPrep">
+    <prepayments>
+        <xsl:for-each select="/documents/document/kliendi_ettemaksud2/kliendi_ettemaks2[tyyp='Laekumine']">
+            <xsl:variable name="rate">
+                <xsl:choose>
+                        <xsl:when test="kurss=''">1</xsl:when>
+                        <xsl:when test="kurss!=''"><xsl:value-of select="kurss"/></xsl:when>
+                </xsl:choose>
+            </xsl:variable>
+            <prepayment>
+                <summa><xsl:value-of select="format-number(((laek * (-1))) * $rate,'0.00')"/></summa>
+                <rate><xsl:value-of select="format-number(kurss,'0.00')"/></rate>
+                <preid><xsl:value-of select="etteid"/></preid>
+                <custCode><xsl:value-of select="klient_kood"/></custCode>
+                <account><xsl:value-of select="konto"/></account>
+                <accountName><xsl:value-of select="konto_nimi"/></accountName>
+            </prepayment>
+        </xsl:for-each>
+    </prepayments>
+</xsl:variable>
+<xsl:variable name="customerPrep2">
+    <prepayments>
+        <xsl:for-each select="/documents/document/kliendi_ettemaksud2/kliendi_ettemaks2[tyyp='Arve']">
+            <xsl:variable name="rate">
+                <xsl:choose>
+                        <xsl:when test="kurss=''">1</xsl:when>
+                        <xsl:when test="kurss!=''"><xsl:value-of select="kurss"/></xsl:when>
+                </xsl:choose>
+            </xsl:variable>
+            <prepayment>
+                <summa><xsl:value-of select="format-number(laek * $rate,'0.00')"/></summa>
+                <rate><xsl:value-of select="format-number(kurss,'0.00')"/></rate>
+                <preid><xsl:value-of select="etteid"/></preid>
+                <custCode><xsl:value-of select="klient_kood"/></custCode>
+                <account><xsl:value-of select="konto"/></account>
+                <accountName><xsl:value-of select="konto_nimi"/></accountName>
+            </prepayment>
+        </xsl:for-each>
+    </prepayments>
+</xsl:variable>
+<xsl:variable name="customerPrepTotals">
+    <prepayments>
+        <xsl:for-each select="msxsl:node-set($customerPrep)/prepayments/prepayment">
+        <xsl:variable name="preid" select="preid"/>
+        <xsl:variable name="custCode2" select="custCode"/>
+        <xsl:variable name="totalFromInvoice" select="sum(msxsl:node-set($customerPrep2)/prepayments/prepayment[custCode=$custCode2 and preid=$preid]/summa)"/>
+        <xsl:variable name="totaEdited">
+                <xsl:choose>
+                        <xsl:when test="$totalFromInvoice = ''">0</xsl:when>
+                        <xsl:when test="$totalFromInvoice != ''"><xsl:value-of select="$totalFromInvoice"/></xsl:when>
+                </xsl:choose>
+        </xsl:variable>   
+            <prepayment>
+                <preid><xsl:value-of select="preid"/></preid>
+                <custCode><xsl:value-of select="custCode"/></custCode>
+                <account><xsl:value-of select="account"/></account>
+                <accountName><xsl:value-of select="accountName"/></accountName>
+                <total><xsl:value-of select="format-number(summa - $totaEdited,'0.00')"/></total>
+            </prepayment>
+        </xsl:for-each>
+    </prepayments>
+</xsl:variable>
             <xsl:for-each select="/documents/document">
-
+                <xsl:variable name="custCode" select="kood" />
              <xsl:variable name="lowercase" select="'abcdefghijklmnopqrstuvwxyzāčēģīķļņšūž'" />
         <xsl:variable name="uppercase" select="'ABCDEFGHIJKLMNOPQRSTUVWXYZĀČĒĢĪĶĻŅŠŪŽ'" />
 
@@ -1016,18 +1090,21 @@
                                             style="border-collapse: collapse; border-left: 1px solid #000000; border-right: 1px solid #000000; border-top: 1px solid #000000; border-bottom: 1px solid #000000"
                                             bordercolor="#111111">
 
-                                            <xsl:for-each select="kliendi_ettemaksud2/kliendi_ettemaks2[generate-id() = generate-id(key('klient_kood_konto', concat(klient_kood, '+', konto))[1])]">
-                                                <xsl:variable name="konto_nimi" select="konto_nimi" />
-                                                <xsl:variable name="konto" select="konto" />
-                                                <xsl:variable name="laek" select="sum(key('klient_kood_konto', concat(klient_kood, '+', konto))/laek) * -1" />
+                                            <xsl:for-each select="msxsl:node-set($DistinctAccount)/accounts/account">
+                                                <xsl:variable name="konto_nimi" select="name" />
+                                                <xsl:variable name="konto" select="code" />
+                                                
+                                                <xsl:variable name="laek" select="format-number(sum(msxsl:node-set($customerPrepTotals)/prepayments/prepayment[custCode=$custCode and account=$konto]/total), '0.000000')" />
+                                                
 
-
-                                                <xsl:if test="normalize-space($konto_nimi) != '' and $laek != 0">
+                                                <xsl:if test="$laek != 0">
                                                     <b>
-                                                        <xsl:value-of select="concat($konto_nimi, ': ', format-number($laek * kurss, '0.00'))" />
+                                                        <xsl:value-of select="concat($konto_nimi, ': ', format-number($laek, '0.00'))" />
                                                     </b>
                                                     <br />
                                                 </xsl:if>
+
+                                               
                                             </xsl:for-each>
                                             
                                         </td>
