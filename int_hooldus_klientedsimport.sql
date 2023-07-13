@@ -1,12 +1,14 @@
 USE [ocra_demo_madars_lv]
 GO
 
-/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 07/07/2023 12:21:58 ******/
+/****** Object:  StoredProcedure [dbo].[int_hooldus_klientedsimport]    Script Date: 13/07/2023 14:21:15 ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
+
+
 
 
 --insert int_hooldus_klient (rn, nimi, tyyp, aru_tyyp) values ('edsimport', N'EDS faila imports', 'import', 'personal')
@@ -32,6 +34,7 @@ insert into @t
 select replace(dat,'<?xml version="1.0" encoding="UTF-8"?>','') from int_import_dat where cu=@key
 create table #kasutajad_maksud (kood nvarchar(32),valem nvarchar(32),rn int, algus datetime,maksuvaba decimal(15,2),lopp datetime,mv_algus datetime,mv_lopp datetime, exist int,ttype nvarchar(32), existPrev int, prevendDate datetime, prevenddate2 datetime)
 create table #kasutajad_maksud_insert_update (kood nvarchar(32),valem nvarchar(32),rn int, algus datetime,maksuvaba decimal(15,2),lopp datetime,mv_algus datetime,mv_lopp datetime, exist int,ttype nvarchar(32), existPrev int, prevendDate datetime, prevenddate2 datetime)
+
 
 create table #XMLRECORDS (perCode nvarchar(20),recordValueTxt nvarchar(255),recordValueDecimal decimal(15,4), StartDate datetime,EndDate datetime,RecordType nvarchar(32),DirCode nvarchar(32), closed int,NGRA int, APG int,papatviegl nvarchar(255),papatvStartDate datetime,papatvEndDate datetime, progressIIN nvarchar(255),progressIINStartDate datetime,progressIINEndDate datetime,taxCombCode nvarchar(255),taxCombConf int,confIIN nvarchar(32),confSocDN nvarchar(32),confSocDD nvarchar(32), confUDR nvarchar(32), userStartDate datetime)
 
@@ -63,6 +66,7 @@ RankedRecords AS (
   SELECT *, ROW_NUMBER() OVER(PARTITION BY pers_code ORDER BY date1) AS rn
   FROM Records
 )
+
 INSERT INTO #XMLRECORDS (perCode, recordValueDecimal, StartDate, EndDate, RecordType)
 SELECT 
   pers_code, 
@@ -85,7 +89,6 @@ FROM RankedRecords
 
 insert #XMLRECORDS (perCode,recordValueDecimal,StartDate,EndDate,RecordType)
 select isikukood,0,NULL,NULL,'PPNMB' from kasutajad where kood not in (select kood from kasutajad_maksud) and kood not in (select DirCode from #XMLRECORDS) and personal='1'
-
 
 
 insert #XMLRECORDS (perCode,recordValueTxt,StartDate,EndDate,RecordType)
@@ -154,6 +157,10 @@ delete from #XMLRECORDS where ngra>=1
 delete from #XMLRECORDS where apg>=1
 select perCode, (select count(StartDate) from #XMLRECORDS where RecordType in ('PPNM') and #XMLRECORDS.perCode=a.perCode),(select count(StartDate) from #XMLRECORDS where RecordType in ('PPROGIIN') and #XMLRECORDS.perCode=a.perCode) from #XMLRECORDS a  where RecordType in ('PPNM','PPROGIIN') and 1=2 group by perCode
 --select * from #XMLRECORDS where perCode='01109310219'
+
+insert #XMLRECORDS (perCode,StartDate,EndDate,RecordType,DirCode,closed)
+select perCode,StartDate,EndDate,'PPNM',DirCode,closed from #XMLRECORDS where RecordType='PPROGIIN'
+
 update #XMLRECORDS set 
 							papatviegl=(select recordValueTxt from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='AL' and cast(#xmlrecords.startDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
 							,	papatvStartDate=(select StartDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='AL' and cast(#xmlrecords.startDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
@@ -161,9 +168,17 @@ update #XMLRECORDS set
 
 where RecordType in ('PPNM')
 update #XMLRECORDS set 
-							progressIIN=(select recordValueTxt from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
-						,	progressIINStartDate=(select StartDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
+							--progressIIN=(select recordValueTxt from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
+							progressIINStartDate=(select StartDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
 						,	progressIINEndDate=(select EndDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
+where RecordType in ('PPNM') and progressIIN is null
+
+update #XMLRECORDS set EndDate = cast(dateadd(ss,-1,progressIINStartDate)as date) where startDate < progressIINStartDate
+
+update #XMLRECORDS set 
+							progressIIN=(select recordValueTxt from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
+						--,	progressIINStartDate=(select StartDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
+						--,	progressIINEndDate=(select EndDate from #XMLRECORDS a where a.perCode=#XMLRECORDS.perCode and RecordType='PPROGIIN' and cast(#xmlrecords.endDate as date) between cast(a.startDate as date) and cast(a.EndDate as date))
 where RecordType in ('PPNM') and progressIIN is null
 
 
@@ -179,6 +194,7 @@ update #XMLRECORDS set
 						,	userStartDate=(select aeg_saabus from kasutajad where kood=DirCode)
 where RecordType in ('PPNM','PPNMB','PPROGIIN')
 DECLARE @POSxml NVARCHAR(32)
+select * from #XMLRECORDS where dircode='D02857'
 
 declare @mergedComment nvarchar(255)
 declare raso_invoice cursor for select distinct perCode,DirCode from #XMLRECORDS where RecordType in ('PPNM','PPNMB','PPROGIIN')
@@ -189,8 +205,40 @@ declare raso_invoice cursor for select distinct perCode,DirCode from #XMLRECORDS
 						
 					/*if (select count(*) from #XMLRECORDS where perCode=@mergedComment and DirCode=@POSxml and RecordType in ('PPNM'))=1
 							begin*/
-								select row_number() over(order by perCode,StartDate,DirCode,closed,NGRA,APG,papatviegl,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR) as #,perCode,recordValueDecimal,StartDate,EndDate,DirCode,closed,NGRA,APG,papatviegl,papatvStartDate,papatvEndDate,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR,userStartDate userEndDate into #dataset from #XMLRECORDS where percode=@mergedComment and  RecordType in ('PPNM','PPNMB','PPROGIIN') order by StartDate
-							--	select * from #dataset
+							select row_number() over(order by perCode,StartDate,DirCode,closed,NGRA,APG,papatviegl,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR) as #,perCode,recordValueDecimal,StartDate,EndDate,DirCode,closed,NGRA,APG,papatviegl,papatvStartDate,papatvEndDate,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR,userStartDate userEndDate, cast('' as nvarchar(2)) as duplicate into #dataset from #XMLRECORDS where percode=@mergedComment and  RecordType in ('PPNM','PPNMB','PPROGIIN') order by StartDate
+
+							select *  into #dataset3 from #dataset where DirCode=@POSxml
+
+
+							delete from #dataset where DirCode=@POSxml
+
+							update #dataset3 set duplicate='x' where confIIN='IIN' and exists(select 1 from #dataset3 b where b.StartDate=#dataset3.StartDate and b.EndDate=#dataset3.EndDate and b.progressIINStartDate=#dataset3.StartDate and b.progressIINEndDate=#dataset3.EndDate and b.confIIN='IIN_23')
+
+
+									update #dataset3 set progressIINStartDate=StartDate, progressIINEndDate=EndDate where year(progressIINStartDate)!=year(StartDate) and duplicate!='x'
+									select * from #dataset3
+
+
+							delete from #dataset3 where duplicate='x'
+
+							--insert #dataset
+							--select * from #dataset3
+
+							update #dataset3 set duplicate='g' where confIIN='IIN_23' and (select count(*) from #dataset3 b where b.StartDate=#dataset3.StartDate and b.EndDate=#dataset3.EndDate and b.progressIINStartDate=#dataset3.StartDate and b.progressIINEndDate=#dataset3.EndDate and b.confIIN='IIN_23') >=2
+
+							insert #dataset3 (perCode,StartDate,EndDate,DirCode,closed,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR)
+							select perCode,StartDate,EndDate,DirCode,closed,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR from #dataset3 where duplicate='g' group by perCode,StartDate,EndDate,DirCode,closed,progressIIN,progressIINStartDate,progressIINEndDate,taxCombCode,taxCombConf,confIIN,confSocDN,confSocDD,confUDR
+
+							delete from #dataset3 where duplicate='g'
+
+							insert #dataset
+							select * from #dataset3
+
+							drop table #dataset3
+
+							
+							
+
 
 				--			if(select 1 from #dataset where #=1 and startDate < progressIINStartDate)=1
 						--			select dircode,'IINBEZGR',NULL,dateadd(d,-1,progressIINStartDate) from #dataset where #=1
@@ -230,6 +278,7 @@ select top 1 DirCode as kood,confSocDN as valem,1 as rn,'SOCDN' from #dataset or
 insert #kasutajad_maksud (kood,valem, rn,ttype)
 select top 1 DirCode as kood,confUDR as valem,1 as rn,'UDR' from #dataset order by rn asc
 
+--select * from #dataset2 where DirCode in ('D01624','D02772')
 
 
 							if (object_id('tempdb..#dataset') is not null)
@@ -256,16 +305,17 @@ update #kasutajad_maksud set exist=(select count(*) from kasutajad_maksud where 
 
 --SELECT * FROM kasutajad_maksud WHERE KOOD='D03377' AND VALEM='iin' AND LOPP>'2023-01-01'
 
-select *  into #kasutajad_maksud_insert from #kasutajad_maksud where exist=0 and kood not in (select kood from #kasutajad_maksud where existPrev >= 1)
+select *  into #kasutajad_maksud_insert from #kasutajad_maksud where exist=0 and existPrev = 0 
 insert #kasutajad_maksud_insert_update
 select * from #kasutajad_maksud where existPrev>=1 
-insert #kasutajad_maksud_insert_update
-select * from #kasutajad_maksud where exist=0  and existPrev=0 and  kood in (select kood from #kasutajad_maksud_insert_update)
+--insert #kasutajad_maksud_insert_update
+--select * from #kasutajad_maksud where exist=0  and existPrev=0 and  kood in (select kood from #kasutajad_maksud_insert_update)
 
-select * from #XMLRECORDS
+-- select * from #XMLRECORDS
 
-select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th colspan="4"></th><th colspan="3" align="center">Neapliekams</th></tr><tr><th>Directo kods</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
+select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th colspan="5"></th><th colspan="3" align="center">Neapliekams</th></tr><tr><th>Directo kods</th><th>Vārds, uzvārds</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
 					td = a.kood, '',
+					td = (select nimi from kasutajad where kood=a.kood),'',
 					td = a.valem, '',
 					td = a.algus, '',
 					td = a.lopp, '',
@@ -275,8 +325,9 @@ select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th c
                from #kasutajad_maksud_insert a where a.kood is not null
               FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX) ) +  
     N'</table>' ;
-	select N'<h1>Atjaunojamie ieraksti</h1><table width="100%" border="1"><tr><th colspan="4"></th><th colspan="3" align="center">Neapliekams</th></tr><tr><th>Directo kods</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
+	select N'<h1>Atjaunojamie</h1><table width="100%" border="1"><tr><th colspan="5"></th><th colspan="3" align="center">Neapliekams</th><th colspan="3" align="center">Neapliekams Eksistējošs</th></tr><tr><th>Directo kods</th><th>Vārds, uzvārds</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th><th>Eksistē</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
 					td = a.kood, '',
+					td = (select nimi from kasutajad where kood=a.kood),'',
 					td = a.valem, '',
 					td = a.algus, '',
 					td = a.lopp, '',
@@ -286,7 +337,7 @@ select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th c
 					TD = A.existPrev, '',
 					td = a.prevendDate,'',
 					td = a.prevendDate2
-               from #kasutajad_maksud_insert_update a where a.kood is not null order by a.kood, existPrev desc
+               from #kasutajad_maksud_insert_update a order by a.kood, existPrev desc
               FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX) ) +  
     N'</table>' ;
 	select N'<h1>Eksistējošie ieraksti</h1><table width="100%" border="1"><tr><th colspan="4"></th><th colspan="3" align="center">Neapliekams</th></tr><tr><th>Directo kods</th><th>nodokļu formula</th><th>Sākums</th><th>Beigas</th><th>Summa</th><th>Sākums</th><th>Beigas</th></tr>'+CAST ( ( SELECT --td = a.number, '',
@@ -303,11 +354,18 @@ select N'<h1>Pievienojamie ieraksti</h1><table width="100%" border="1"><tr><th c
 
 if @do=2
 begin
+
+
 insert kasutajad_maksud (kood,valem, rn,algus,maksuvaba,lopp,mv_algus,mv_lopp)
-select kood,valem, rn,algus,maksuvaba,lopp,mv_algus,mv_lopp from #kasutajad_maksud where exist=0
+select kood,valem, rn,algus,maksuvaba,lopp,mv_algus,mv_lopp from #kasutajad_maksud where existPrev=0 and exist=0
+
+
+update kasutajad_maksud set lopp=z.lopp, mv_lopp=z.mv_lopp
+from (select * from #kasutajad_maksud where existprev >= 1) z
+where kasutajad_maksud.kood=z.kood and kasutajad_maksud.valem=z.valem and kasutajad_maksud.algus=z.algus and kasutajad_maksud.mv_algus=z.mv_algus
 
 end
-SELECT * FROM #XMLRECORDS WHERE DirCode='D02883'
+-- SELECT * FROM #XMLRECORDS WHERE DirCode='D02883'
 drop table #PerDirReg
 drop table #XMLRECORDS 
 
