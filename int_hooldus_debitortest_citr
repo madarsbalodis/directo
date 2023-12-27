@@ -1,0 +1,83 @@
+USE [ocra_demo_citrus_lv]
+GO
+
+/****** Object:  StoredProcedure [dbo].[int_hooldus_klientDEEBITORTEST]    Script Date: 27/12/2023 11:53:34 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+ALTER PROCEDURE [dbo].[int_hooldus_klientDEEBITORTEST] @aeg1 datetime, @aeg2 datetime, @projekt nvarchar(32)=null, @objekt nvarchar(255)=null, @klient nvarchar(32)=NULL, @vahe varchar(10)=null AS
+DECLARE @cu nvarchar(32), @rn int, @arve int, @laekunud money, @osamakse money
+IF APP_NAME() LIKE '%,user:%' SET @cu=SUBSTRING(APP_NAME(),CHARINDEX(',user:',APP_NAME())+6,32)
+/*
+	delete int_hooldus_klient  where rn='DEEBITOR';insert into int_hooldus_klient (rn,nimi,formaat,oigus,aru_tyyp, hide_per) select 'DEEBITOR','Deebitoride aruanne','tabel','int_hooldus_klientDEEBITOR','myyk',1
+	delete int_hooldus_klient_params where aru_id='DEEBITOR';insert into int_hooldus_klient_params (aru_id,nimi,tyyp,order_no) values ('DEEBITOR','Projekt','put_projekt',10), ('DEEBITOR','Objekt','put_objekt',20),('DEEBITOR','Klient','put_klient',30),('DEEBITOR','Vahesumma',',Projekt,Klient',30)
+	int_aruanded
+*/
+set @aeg2=@aeg1
+select convert(nvarchar,@aeg2,104) as Datums,convert(nvarchar,getdate(),104) as [Atskaites datums], @cu as [Atskaites veidotājs]
+;with arved as (
+select number, aeg , aeg2, isnull(projekt,' ') projekt, isnull(klient_tellija,klient_kood) as klient, tingimus, objekt, tasuda,kokku, (select convert(money,sum(s.summa/isnull(s.kurss_e,1))) from int_mr_ajalugu s with (nolock) where s.arvenr=a.number and aeg<@aeg2+1) as saldo from mr_arved a with (nolock) where kinnitatud=1 and aeg<@aeg2+1
+) select a.number,a.aeg ,a.aeg2, a.projekt, a.klient, a.tingimus, a.objekt, a.tasuda,a.kokku ,a.saldo, m.aeg as maeg, m.osamakse,m.pohjus, isnull(m.rn,0) rn into #arved from arved a left outer join mr_arved_tasu_ajad as m WITH (NOLOCK) on a.number=m.number where a.saldo!=0
+	and (@klient is null or a.klient=@klient)
+	and (@projekt is null or a.projekt=@projekt)
+	and (@objekt is null or dbo.onobjekt(a.objekt,@objekt,null)=1)
+create index ix_tmparved on #arved (number)
+create index ix_tmparved2 on #arved (maeg) include (number, rn, osamakse) where saldo is null and maeg is not null
+select number as arve, min(isnull(tasuda,0)-isnull(saldo,0)) as laekunud into #laekunud from #arved where maeg is not null group by number
+create index ix_tmlaekunud on #laekunud (arve) include(laekunud)
+update #arved set saldo=null where maeg is not null
+while 1=1 begin
+	select @arve=null, @laekunud=null
+	select top 1 @arve=number, @rn=rn, @osamakse=osamakse from #arved where saldo is null and maeg is not null order by number, rn
+	select @laekunud=laekunud from #laekunud where arve=@arve
+	if @laekunud>@osamakse begin
+		update #laekunud set laekunud-=@osamakse where arve=@arve
+		update #arved set saldo=0 where number=@arve and rn=@rn
+	end else begin
+		delete #laekunud where arve=@arve
+		update #arved set saldo=isnull(@osamakse,0)-isnull(@laekunud,0) where number=@arve and rn=@rn
+	end
+	if @arve is null break
+end
+alter table #arved add aru int, saldo1 money, saldo2 money
+update #arved set saldo2=case when isnull(maeg,aeg2)<@aeg2 then saldo else null end, saldo1=case when isnull(maeg,aeg2)<@aeg2 then null else saldo end
+alter table #arved alter column number int null
+alter table #arved alter column rn int null
+alter table #arved alter column projekt nvarchar(32) null
+update #arved set aru=2
+if @vahe is null begin
+	insert into #arved (aru,projekt,saldo,saldo1,saldo2) select 4,N'<>KOPĀ',sum(saldo), sum(saldo1), sum(saldo2) from #arved
+	select a.Projekt, (select nimi from projektid p with (nolock) where p.kood=a.projekt) as [Projekta  nosaukums], '<a href="javascript:avaDok(''klient'','''+klient+''')">'+(select k.nimi from kliendid k with (nolock) where k.kood=a.klient)+'</a>' as [Klients ],
+		dbo.levelobjekt(a.objekt,4) as Objekts, 
+		'<a href="javascript:avaDok(''Arve'','''+convert(varchar,a.number)+''')">'+convert(varchar,a.number)+'</a>'  as  [Rēķins] , 
+		convert(varchar,a.aeg,104) as [Rēķina datums],tasuda as [Rēķina summa],kokku as [Rēķina summa bez PVN] , isnull(a.maeg,a.aeg2) as [Maksājuma termiņš], a.saldo as [Kopējais parāds], saldo1 as [Nav kavēts], saldo2 as [Nokavēts],
+		case when datediff(d,isnull(a.maeg,a.aeg2),@aeg2)>0 then datediff(d,isnull(a.maeg,a.aeg2),@aeg2) end as [Nokavēto dienu skaits], a.pohjus as [Iemesla kods no maksājuma grafika]
+	 from #arved a where a.saldo!=0 order by aru,projekt,klient,a.number,rn
+end else if @vahe='klient' begin
+	insert into #arved (aru,klient,saldo,saldo1,saldo2) select 4,N'<b>Kopā',sum(saldo), sum(saldo1), sum(saldo2) from #arved
+	insert into #arved (aru,klient) select distinct 1, klient from #arved where aru=2
+	insert into #arved (aru,klient,saldo,saldo1,saldo2) select 3, klient, sum(saldo), sum(saldo1), sum(saldo2) from #arved where aru=2 group by klient
+	select case when aru in (1,4) then a.klient end as [Klients], case when aru in (1) then (select nimi from kliendid k with (nolock) where k.kood=a.klient) when aru=3 then N'<b>Kopā '+a.klient else '<a href="javascript:avaDok(''projekt'','''+projekt+''')">'+(select p.nimi from projektid p with (nolock) where p.kood=a.projekt)+'</a>' end as [Projekts ],
+		dbo.levelobjekt(a.objekt,4) as Objekst, '<a href="javascript:avaDok(''Arve'','''+convert(varchar,a.number)+''')">'+convert(varchar,a.number)+'</a>'  as  [Rēķins] , convert(varchar,a.aeg,104) as [Rēķina datums],tasuda as [Rēķina summa],kokku as [Rēķina summa bez PVN] , isnull(a.maeg,a.aeg2) as [Maksājuma termiņš], a.saldo as [Kopējais parāds], saldo1 as [Nav kavēts], saldo2 as [Nokavēts],
+		case when datediff(d,isnull(a.maeg,a.aeg2),@aeg2)>0 then datediff(d,isnull(a.maeg,a.aeg2),@aeg2) end as [Nokavēto dienu skaits], a.pohjus as [Iemesla kods no maksājuma grafika]
+	 from #arved a where a.saldo!=0 order by case when aru=4 then 1 end, a.klient,aru,a.projekt,number,rn
+end else if @vahe='projekt' begin
+	insert into #arved (aru,projekt,saldo,saldo1,saldo2) select 4,N'<b>Kopā',sum(saldo), sum(saldo1), sum(saldo2) from #arved
+	insert into #arved (aru,projekt) select distinct 1, projekt from #arved where aru=2
+	insert into #arved (aru,projekt,saldo,saldo1,saldo2) select 3, projekt, sum(saldo), sum(saldo1), sum(saldo2) from #arved where aru=2 group by projekt
+	select case when aru in (1,4) then a.Projekt end as [Projekts], case when aru in (1) then (select nimi from projektid p with (nolock) where p.kood=a.projekt) when aru=3 then N'<b>Kopā '+a.projekt else '<a href="javascript:avaDok(''klient'','''+klient+''')">'+(select k.nimi from kliendid k with (nolock) where k.kood=a.klient)+'</a>' end as [Klients ],
+		dbo.levelobjekt(a.objekt,4) as Objekts,'<a href="javascript:avaDok(''Arve'','''+convert(varchar,a.number)+''')">'+convert(varchar,a.number)+'</a>'  as  [Rēķins] , convert(varchar,a.aeg,104) as [Rēķina datums],tasuda as [Rēķina summa],kokku as [Rēķina summa bez PVN] , isnull(a.maeg,a.aeg2) as [Maksājuma termiņš], a.saldo as [Kopējais parāds], saldo1 as [Nav kavēts], saldo2 as [Nokavēts],
+		case when datediff(d,isnull(a.maeg,a.aeg2),@aeg2)>0 then datediff(d,isnull(a.maeg,a.aeg2),@aeg2) end as [Kavētas dienas], a.pohjus as [atliktā maksājuma iemesla kods]
+	 from #arved a where a.saldo!=0 order by case when aru=4 then 1 end, a.projekt,aru,klient,number,rn
+end
+drop table #arved
+
+
+GO
+
+
