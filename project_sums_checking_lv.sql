@@ -21,7 +21,6 @@ GO
 
 
 
-
 ALTER function [dbo].[project_sums_checking_lv](@docType as nvarchar(15), @docNumber int, @checkingType nvarchar(25)) returns nvarchar(max)
 begin
 -- need to create supplier checking
@@ -37,7 +36,7 @@ if @docType='otellimus'
 	begin
 	if @checkingType in ('Contract','contractVsDocSumsPerc','contractVsDocSums','contractVsDocSumsPercSave')
 		begin
-		select @contractDfValue = isnull((select lisa_field5 from otell_tellimused where number=@docNumber),'')
+		select @contractDfValue = isnull((select lisa_field2 from otell_tellimused where number=@docNumber),'')
 		if isnull(@contractDfValue,'')!=''
 			begin
 				
@@ -96,15 +95,15 @@ if @checkingType in ('contractVsDocSumsPerc','contractVsDocSums','contractVsDocS
 				update @main_document_project_data_table set sumInContract=isnull((select sum(lepingud_read.summa) from lepingud_read inner join lepingud on lepingud.number=lepingud_read.number where lepingud.number=@contractDfValue and isnull(isnull(lepingud_read.projekt,lepingud.projekt),'')=isnull(project,'')),0)
 
 				-- purchase invoice sum checking for current project without added purchase order
-				update @main_document_project_data_table set usedSumInInInvoiceWoOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')='' and isnull(oa.kinnitatud,0)=1  and oa.lisa_field5=@contractDfValue),0)
+				update @main_document_project_data_table set usedSumInInInvoiceWoOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')='' and isnull(oa.kinnitatud,0)=1  and oa.lisa_field2=@contractDfValue),0)
 				
 				-- purchase invoice sum checking for current project with added purchase order
-				update @main_document_project_data_table set usedSumInInInvoiceWithOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1  and oa.lisa_field5=@contractDfValue),0) 
+				update @main_document_project_data_table set usedSumInInInvoiceWithOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1  and oa.lisa_field2=@contractDfValue),0) 
 
 				-- purchase prder sum checking for current project
-				update @main_document_project_data_table set reservedSumWithOrder=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(isnull(otr.r_projekt,ot.projekt),'')=isnull(project,'') and ot.number not in (select oa.ostutellimus from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1) and ot.number!=@docNumber  and ot.lisa_field5=@contractDfValue and isnull(ot.kinnitatud,0)=1),0)
+				update @main_document_project_data_table set reservedSumWithOrder=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(isnull(otr.r_projekt,ot.projekt),'')=isnull(project,'') and ot.number not in (select oa.ostutellimus from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(isnull(oar.projekt,oa.projekt),'')=isnull(project,'') and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1) and ot.number!=@docNumber  and ot.lisa_field2=@contractDfValue and isnull(ot.kinnitatud,0)=1),0)
 
-				update @main_document_project_data_table set CurrentDoc=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(isnull(otr.r_projekt,ot.projekt),'')=isnull(project,'') and ot.number=@docNumber  and ot.lisa_field5=@contractDfValue),0)
+				update @main_document_project_data_table set CurrentDoc=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(isnull(otr.r_projekt,ot.projekt),'')=isnull(project,'') and ot.number=@docNumber  and ot.lisa_field2=@contractDfValue),0)
 
 				update @main_document_project_data_table set total=(isnull(usedSumInInInvoiceWoOrder,0)+isnull(usedSumInInInvoiceWithOrder,0)+isnull(reservedSumWithOrder,0)+isnull(CurrentDoc,0))
 
@@ -148,7 +147,7 @@ if @checkingType in ('contractVsDocSumsPerc','contractVsDocSums','contractVsDocS
 
 if @docType='oarve'
 	begin
-		select @contractDfValue = isnull((select lisa_field5 from or_arved where number=@docNumber),'')
+		select @contractDfValue = isnull((select lisa_field2 from or_arved where number=@docNumber),'')
 	if @checkingType in ('Contract','contractVsDocSumsPerc','contractVsDocSums','contractVsDocSumsPercSave')
 		begin
 		if isnull(@contractDfValue,'')!=''
@@ -210,10 +209,10 @@ if @checkingType in ('contractVsDocSumsPerc','contractVsDocSums','contractVsDocS
 			begin
 			
 				update @main_document_project_data_table set sumInContract=isnull((select sum(lepingud_read.summa) from lepingud_read inner join lepingud on lepingud.number=lepingud_read.number where lepingud.number=@contractDfValue and isnull(isnull(lepingud_read.projekt,lepingud.projekt),'')=isnull(project,'')),0)
-				update @main_document_project_data_table set usedSumInInInvoiceWoOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')='' and isnull(oa.kinnitatud,0)=1 and oa.number!=@docNumber and oa.lisa_field5=@contractDfValue),0)
-				update @main_document_project_data_table set usedSumInInInvoiceWithOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1 and oa.number!=@docNumber and oa.lisa_field5=@contractDfValue),0) 
-				update @main_document_project_data_table set reservedSumWithOrder=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(otr.r_projekt,ot.projekt)=project and isnull(ot.kinnitatud,0)=1 and ot.number not in (select oa.ostutellimus from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1 and oa.lisa_field5=@contractDfValue)),0)
-				update @main_document_project_data_table set CurrentDoc=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and oa.number=@docNumber and oa.lisa_field5=@contractDfValue),0)
+				update @main_document_project_data_table set usedSumInInInvoiceWoOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')='' and isnull(oa.kinnitatud,0)=1 and oa.number!=@docNumber and oa.lisa_field2=@contractDfValue),0)
+				update @main_document_project_data_table set usedSumInInInvoiceWithOrder=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1 and oa.number!=@docNumber and oa.lisa_field2=@contractDfValue),0) 
+				update @main_document_project_data_table set reservedSumWithOrder=isnull((select sum(otr.summa) from otell_tellimused_read otr left join otell_tellimused ot on otr.number=ot.number where isnull(otr.r_projekt,ot.projekt)=project and isnull(ot.kinnitatud,0)=1 and ot.number not in (select oa.ostutellimus from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and isnull(oa.ostutellimus,'')!='' and isnull(oa.kinnitatud,0)=1 and oa.lisa_field2=@contractDfValue)),0)
+				update @main_document_project_data_table set CurrentDoc=isnull((select sum(oar.summa) from or_arved_read oar left join or_arved oa on oar.number=oa.number where isnull(oar.projekt,oa.projekt)=project and oa.number=@docNumber and oa.lisa_field2=@contractDfValue),0)
 				
 					update @main_document_project_data_table set total=(isnull(usedSumInInInvoiceWoOrder,0)+isnull(usedSumInInInvoiceWithOrder,0)+isnull(reservedSumWithOrder,0)+isnull(CurrentDoc,0))
 					
