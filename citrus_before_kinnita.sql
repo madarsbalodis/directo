@@ -7,19 +7,16 @@ GO
 
 
 
-
 ALTER PROCEDURE [dbo].[before_kinnita] @tyyp nvarchar(32), @number nvarchar(32), @p_olek varchar(100) OUTPUT 
 AS
-declare @msg nvarchar(max)
-
-
-
+declare @msg varchar(255)
 --solution for contract sum checking
 if @tyyp in ('otellimus', 'oarve')
 	begin
-		if 1=2
+		if 1=1
 			begin
 
+				
 				declare @contractCheckingMsg nvarchar(max)
 				select @contractCheckingMsg = convert(nvarchar(max),
 				(select dbo.project_sums_checking_lv(@tyyp,@number,'Contract')))
@@ -58,14 +55,13 @@ if @tyyp in ('otellimus', 'oarve')
 				
 
 			end
+			select @msg = replace(replace(@msg,'&lt;','<'),'&gt;','>')
 	end
-
-
 if ISNULL(@msg,'')!=''
 begin
 
 		if object_id('tempdb..#teated') is NOT null BEGIN --FOR NEW DESING SUPPORTED CONFIRMERS
-			insert into #teated select @msg
+			insert into #teated select  @msg
 		END ELSE BEGIN
 			set @p_olek = 'halb'
 			select @msg
