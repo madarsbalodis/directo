@@ -6,7 +6,7 @@ GO
 
 
 ALTER  procedure  
-[dbo].[int_hooldus_klient_eds_absence_import]  @aeg1 datetime, @aeg2 datetime ,@key nvarchar(max)--, @do nvarchar(3)
+[dbo].[int_hooldus_klient_darbnespeju_lapu_imports]  @aeg1 datetime, @aeg2 datetime ,@key nvarchar(max)--, @do nvarchar(3)
 as  
 Declare @datenow DATETIME, @ag datetime
 declare @number int, @maa int, @kmk nvarchar(32), @x int, @kinnitatud int
@@ -255,7 +255,7 @@ begin
 		else if 1 in (select countRecord from #values_temp)
 			begin
 				update per_ajad_read
-				set r_aeg2 = z.EndDate
+				set r_aeg2 = cast(z.EndDate as date)
 				from (select * from #values_temp where countRecord = 1)z 
 				where r_aeg2 is null and number = z.DocNr and z.CountRecord = 1 and z.DocRow = per_ajad_read.rn
 			end
