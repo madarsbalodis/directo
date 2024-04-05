@@ -1,0 +1,1624 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   PROCEDURE [dbo].[int_hooldus_klient_pvn_v052022] @aeg1 datetime, @aeg2 datetime AS
+DECLARE @customerVatNo nvarchar(10)
+DECLARE @customerRegNo nvarchar(10)
+declare @defVatRegNo nvarchar(32)
+DECLARE @account nvarchar(32) --SET @account = 57211
+DECLARE @stat_vat decimal
+DECLARE @vat_declar_name nvarchar(200)
+DECLARE @df_invoice_number nvarchar(1)
+select @df_invoice_number = setting from settings where id='arve_nr_lisav'
+
+--static vars
+select top 1 @customerVatNo = isnull(param1,'DOC'),@defVatRegNo = isnull(param2,''), @stat_vat =  isnull(param3,'21'), @account = isnull(param4,'0000000'), @vat_declar_name = kood  from tr_params where tyyp='PVN_ADD_CONFIG'
+DECLARE @lim decimal SET @lim = ISNULL((SELECT TOP 1 CAST(ISNULL(kontod, 1000) AS decimal) FROM fin_aru_kaive_read WITH (NOLOCK) WHERE number=9000 AND kood=@vat_declar_name AND tyyp = 3), 1000)
+
+
+--set @lim = 0 
+DECLARE @i int SET @i = 1
+DECLARE @x nvarchar(10) SET @x = '1'
+DECLARE @y nvarchar(10) SET @y = '1'
+
+--numbers helper
+DECLARE @numbers TABLE (n int) INSERT INTO @numbers
+  SELECT TOP 1000 row_number() over(ORDER BY t1.number)
+  FROM master..spt_values t1
+  CROSS JOIN master..spt_values t2
+--vat summary
+DECLARE @vat_declar_sums TABLE
+(
+  row_nr int,
+  row_type int,
+  c_class int,
+  vat_code nvarchar(30),
+  nr nvarchar(30),
+  description nvarchar(200),
+  range_formula nvarchar(200),
+  doc_sum decimal(15,2)
+)
+
+declare @x1c int, @acc nvarchar(32), @vatC nvarchar(10)
+create table #account_values (acc nvarchar(32), debet decimal(15,4), credit decimal(15,4), diff decimal(15,4), vatCode nvarchar(32))
+
+
+	DECLARE accounts cursor for select kood from fin_kontod
+open accounts
+FETCH NEXT FROM accounts INTO @acc
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    insert #account_values (acc,debet,credit,diff,vatCode)
+    select @acc,isnull(sum(isnull(iif(baas1kreedit < 0, baas1kreedit*(-1), iif(baas1deebet > 0, baas1deebet,0)),0)),0), isnull(sum(isnull(iif(baas1deebet < 0, baas1deebet*(-1), iif(baas1kreedit > 0, baas1kreedit,0)),0)),0), NULL,NULL from fin_kanded_read where cast(r_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date) and konto = @acc
+
+
+			DECLARE vatCodes cursor for select distinct(kmkood) from fin_kanded_read where cast(r_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date) and konto=@acc
+				open vatCodes
+				FETCH NEXT FROM vatCodes INTO @vatC
+				WHILE @@FETCH_STATUS = 0
+				BEGIN
+    
+    insert #account_values (acc,debet,credit,diff,vatCode)
+	select @acc,isnull(sum(isnull(iif(baas1kreedit < 0, baas1kreedit*(-1), iif(baas1deebet > 0, baas1deebet,0)),0)),0), isnull(sum(isnull(iif(baas1deebet < 0, baas1deebet*(-1), iif(baas1kreedit > 0, baas1kreedit,0)),0)),0),NULL, @vatC from fin_kanded_read where cast(r_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date) and konto = @acc and kmkood=@vatC
+		FETCH NEXT FROM vatCodes INTO @vatC 
+END
+CLOSE vatCodes
+DEALLOCATE vatCodes
+		FETCH NEXT FROM accounts INTO @acc 
+END
+CLOSE accounts
+DEALLOCATE accounts
+
+
+
+declare @rida int=0, @kood nvarchar(32)=@vat_declar_name, @x1 money,@enne nvarchar(max)='', @tehe nvarchar(255)
+
+select 
+			@rida=number,
+
+
+			@x1 = isnull(iif(isnull(kmkood,'')!='',
+			IIF(KONTOKLASS='3',(select ISNULL(sum(CREDIT),0)  - ISNULL(sum(debet),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and fin_aru_kaive_read.kmkood=vatCode),(select ISNULL(sum(DEBET),0)  - ISNULL(sum(CREDIT),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and fin_aru_kaive_read.kmkood=vatCode)),IIF(KONTOKLASS='3',(select ISNULL(sum(CREDIT),0)  - ISNULL(sum(debet),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and isnull(vatCode,'')=''),(select ISNULL(sum(DEBET),0)  - ISNULL(sum(CREDIT),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and isnull(vatCode,'')=''))),0),@enne+='&'+convert(nvarchar,@rida)+'='+convert(nvarchar,@x1) from fin_aru_kaive_read with (nolock) where kood=@kood and tyyp=1 order by number
+
+select 
+			@rida=number,
+
+
+			@x1 = isnull(iif(isnull(kmkood,'')!='',
+			(select ISNULL(sum(CREDIT),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and kmkood=vatCode),(select ISNULL(sum(CREDIT),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and isnull(vatCode,'')='')),0),@enne+='&'+convert(nvarchar,@rida)+'='+convert(nvarchar,@x1) from fin_aru_kaive_read with (nolock) where kood=@kood and tyyp=8 order by number
+select 
+			@rida=number,
+
+
+			@x1 = isnull(iif(isnull(kmkood,'')!='',
+			(select ISNULL(sum(debet),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and kmkood=vatCode),(select ISNULL(sum(debet),0) from #account_values with (nolock) where acc in (select x from dbo.get_in_konto(kontod)) and isnull(vatCode,'')='')),0),@enne+='&'+convert(nvarchar,@rida)+'='+convert(nvarchar,@x1) from fin_aru_kaive_read with (nolock) where kood=@kood and tyyp=7 order by number
+
+select 
+		@rida=number, 
+		@x1=dbo.liida(kontod,@enne),
+		@enne+='&'+convert(nvarchar,@rida)+'='+convert(nvarchar,@x1) from fin_aru_kaive_read with (nolock) where kood=@kood and tyyp=2 order by number
+;with v(r,x) as (select left(x,charindex('=',x+'=')-1), substring(x,charindex('=',x+'=')+1, len(x))  from dbo.get_in_sep(@enne,'&'))
+
+       insert @vat_declar_sums 
+		select rn,tyyp,kontoklass,kmkood,number, tekst, kontod, x from fin_aru_kaive_read with (nolock) left outer join v on r=number where kood=@kood order by number
+
+-----------------
+------ 1-1 ------
+-----------------
+set nocount on 
+DECLARE @pvn13_vat_codes_1_1 TABLE
+(
+  code nvarchar(30),
+  rate decimal,
+  proportion decimal,
+  description nvarchar(200),
+  sales_account nvarchar(30),
+  purchase_account nvarchar(30),
+  info nvarchar(200),
+  dar_veids nvarchar(5),
+  do_limit varchar(2)
+)
+INSERT INTO @pvn13_vat_codes_1_1
+  SELECT kood, ilmakm, or_proportsioon, seletus, myykkonto, ostuKMkonto, lisainfo,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='DARTIPS1_3' AND klass='kmk'), '41') AS nvarchar(10)) AS dar_veids,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='LIMITS' AND klass='kmk'), 'Ja') AS varchar(2)) AS do_limit
+  FROM fin_kmkoodid fk
+  WHERE lisainfo LIKE '%pvn13%'
+
+DECLARE @pvn11_vat_codes TABLE
+(
+  code nvarchar(30),
+  rate decimal,
+  reverse_rate decimal,
+  proportion decimal,
+  description nvarchar(200),
+  sales_account nvarchar(30),
+  purchase_account nvarchar(30),
+  info nvarchar(200),
+  dar_veids nvarchar(5),
+  do_limit varchar(2)
+)
+INSERT INTO @pvn11_vat_codes
+  SELECT kood, ilmakm, poord, or_proportsioon, seletus, myykkonto, ostuKMkonto, lisainfo,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='DARTIPS1_1' AND klass='kmk'), 'I') AS nvarchar(10)) AS dar_veids,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='LIMITS' AND klass='kmk'), 'Ja') AS varchar(2)) AS do_limit
+  FROM fin_kmkoodid fk
+  WHERE lisainfo LIKE '%pvn11%'
+
+
+Declare @pvn1_1_temp TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+    directo_nr nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    vatc_prepayment decimal(15,2),
+	prepid int
+)
+
+Declare @pvn1_1_r_rows TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+    directo_nr nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_date nvarchar(30),
+    vatc_prepayment decimal(15,2)
+)
+
+Declare @pvn1_1_values_by_doc TABLE
+(
+    rn int,
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+    directo_nr nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,2),
+    vatc_prepayment decimal(15,2)
+)
+
+Declare @pvn1_1_top_sums_supplier TABLE
+(
+ 
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+)
+
+Declare @pvn1_1_sums_supplier TABLE
+(
+  
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+)
+Declare @pvn1_1_top_table TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+    directo_nr nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    rn int
+)
+
+Declare @pvn1_1_top_r_table TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+    directo_nr nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30)
+    ,rn int
+)
+ declare @pvn_1_1_v_totals TABLE
+  (
+    dok_veids nvarchar(32),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(32),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+declare @pvn_1_1_v_totals2 TABLE
+  (
+    dok_veids nvarchar(32),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(32),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+ declare @pvn_1_1_t_totals TABLE
+  (
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_nr nvarchar(255)
+  )
+   declare @pvn_1_1_totals TABLE
+  (
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+insert @pvn1_1_temp --sales invoices
+ SELECT
+      (SELECT TOP 1 dar_veids FROM @pvn11_vat_codes vc WHERE vc.code = mr_arved_read.kmk) AS dar_veids,
+      (SELECT TOP 1 do_limit FROM @pvn11_vat_codes vc WHERE vc.code = mr_arved_read.kmk) AS do_limit,
+      case when (isnull(ettemaks,0) = 0) then '1' else '1' end AS dok_veids,
+      iif(@df_invoice_number!='',(
+		case 
+			when (@df_invoice_number='1') then (mr_arved.lisa_field1)
+			when (@df_invoice_number='2') then (mr_arved.lisa_field2)
+			when (@df_invoice_number='3') then (mr_arved.lisa_field3)
+			when (@df_invoice_number='4') then (mr_arved.lisa_field4)
+			when (@df_invoice_number='5') then (mr_arved.lisa_field5)
+			when (@df_invoice_number='6') then (mr_arved.lisa_field6)
+			when (@df_invoice_number='7') then (mr_arved.lisa_field7)
+		end
+	  ),mr_arved_read.number) AS doc_nr,
+      mr_arved_read.number AS doc_nr,
+      kmk as vat_code,
+      CAST((klient_nimi) AS nvarchar(30)) AS client_name,
+SUBSTRING((case	when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)=2) then (iif(@customerVatNo='CARD',isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood)),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood)))))
+			when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)!=2) then ((iif(@customerVatNo='CARD',
+			(select kmregnr from kliendid where kood=mr_arved.klient_kood),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,(select kmregnr from kliendid where kood=mr_arved.klient_kood)))))end),0,30) AS vat_reg_nr,
+	  CAST((ROUND(ISNULL(summa * kurssBV1, 0), 4)) AS decimal(15,2)) AS doc_sum,
+      isnull(cast((ROUND(ISNULL(summa * kurssBV1, 0), 4) * (NULLIF((ISNULL((SELECT TOP 1 rate FROM @pvn11_vat_codes WHERE code = mr_arved_read.kmk), 0) / 100), 0))) AS decimal(15,2)),'0.00') AS doc_vat,
+      REPLACE(CONVERT(VARCHAR, aeg, 111), '/', '-')  AS doc_date,
+      (select sum(summa) from mr_arved_ettemaksud mae where mae.arve=mr_arved_read.number and mae.kmk=mr_arved_read.kmk),
+	  NULL
+    FROM mr_arved_read WITH (NOLOCK) INNER JOIN mr_arved ON mr_arved_read.number=mr_arved.number
+    WHERE
+      CAST(aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+      AND (kinnitatud = 1)
+      and kmk in (SELECT code FROM @pvn11_vat_codes)
+      and artikkel is not null 
+      AND ((ISNULL(NULLIF(kredarve, ''), '') = '') OR (CAST((SELECT TOP 1 ma_inner.aeg FROM mr_arved ma_inner WHERE ma_inner.number = mr_arved.kredarve) AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)))
+UNION ALL
+SELECT
+      'A' AS dar_veids,
+      (SELECT TOP 1 do_limit FROM @pvn13_vat_codes_1_1 vc WHERE vc.code = mr_arved_read.kmk) AS do_limit,
+      case when (isnull(ettemaks,0) = 0) then '4' else 'Z' end AS dok_veids,
+       iif(@df_invoice_number!='',(
+		case 
+			when (@df_invoice_number='1') then (mr_arved.lisa_field1)
+			when (@df_invoice_number='2') then (mr_arved.lisa_field2)
+			when (@df_invoice_number='3') then (mr_arved.lisa_field3)
+			when (@df_invoice_number='4') then (mr_arved.lisa_field4)
+			when (@df_invoice_number='5') then (mr_arved.lisa_field5)
+			when (@df_invoice_number='6') then (mr_arved.lisa_field6)
+			when (@df_invoice_number='7') then (mr_arved.lisa_field7)
+		end
+	  ),mr_arved_read.number),
+      mr_arved_read.number AS doc_nr,
+      kmk as vat_code,
+      CAST((klient_nimi) AS nvarchar(30)) AS client_name,
+SUBSTRING((case	when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)=2) then (/*iif(@customerVatNo='CARD',isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood)),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood))))*/'')
+			when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)!=2) then ((iif(@customerVatNo='CARD',
+			(select kmregnr from kliendid where kood=mr_arved.klient_kood),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,(select kmregnr from kliendid where kood=mr_arved.klient_kood)))))end),0,30) AS vat_reg_nr,
+      CAST((ROUND(ISNULL((summa * (-1)) * kurssBV1, 0), 4)) AS decimal(15,2)) AS doc_sum,
+      isnull(cast((ROUND(ISNULL((summa * (-1)) * kurssBV1, 0), 4) * (NULLIF((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes_1_1 WHERE code = mr_arved_read.kmk), 0) / 100), 0))) AS decimal(15,2)),'0.00') AS doc_vat,
+      REPLACE(CONVERT(VARCHAR, aeg, 111), '/', '-')  AS doc_date,
+      (select sum(summa) * (-1) from mr_arved_ettemaksud mae where mae.arve=mr_arved_read.number and mae.kmk=mr_arved_read.kmk),
+	  NULL
+    FROM mr_arved_read WITH (NOLOCK) INNER JOIN mr_arved ON mr_arved_read.number=mr_arved.number
+    WHERE
+      CAST(aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+      AND (kinnitatud = 1)
+      and kmk in (SELECT code FROM @pvn13_vat_codes_1_1)
+      and artikkel is not null 
+      and mr_arved.kokku <=0
+	  and (mr_arved.kredarve is null or cast((select aeg from mr_arved a where a.number=mr_arved.kredarve) as date) < dateadd(ss,-1,@aeg1))
+
+--------
+insert @pvn1_1_temp
+SELECT
+       'A',--(SELECT TOP 1 dar_veids FROM @pvn13_vat_codes_1_1 vc WHERE vc.code = mlr.kmk) AS dar_veids,
+      (SELECT TOP 1 do_limit FROM @pvn13_vat_codes_1_1 vc WHERE vc.code = mlr.kmk) AS do_limit,
+      '3' AS dok_veids,
+      CAST(ml.number AS nvarchar(30)) AS doc_nr,
+	  CAST(ml.number AS nvarchar(30)) AS doc_nr,
+      CAST(mlr.kmk AS nvarchar(30)) AS vat_code,
+      CAST((SELECT TOP 1 nimi FROM kliendid WITH (NOLOCK) WHERE (kliendid.kood=mlr.klient_kood)) AS nvarchar(30)) AS client_name,
+     CAST((SELECT TOP 1 kmregnr FROM kliendid WITH (NOLOCK) WHERE (kliendid.kood=mlr.klient_kood)) AS nvarchar(30)) AS vat_reg_nr,
+	 --CAST((SELECT regnr FROM kliendid WITH (NOLOCK) WHERE kliendid.kood=mlr.klient_kood) AS nvarchar(30)) AS reg_nr,
+      CAST((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes_1_1 WHERE code=mlr.kmk),0)/100)+1)) AS decimal(15,4)) * (-1) AS doc_sum,
+      CAST(((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes_1_1 WHERE code=mlr.kmk),0)/100)+1))*(ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes_1_1 WHERE code=mlr.kmk),0)/100)) AS decimal(15,4))  * (-1) AS doc_vat,
+      REPLACE(CONVERT(VARCHAR, ml.aeg, 111), '/', '-')  AS doc_date,
+     CAST((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes_1_1 WHERE code=mlr.kmk),0)/100)+1)) AS decimal(15,4))  * (-1),
+    --  0,
+	etteID
+FROM mr_laekumised ml, mr_laekumised_read mlr WITH (NOLOCK)
+WHERE CAST(ml.aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+AND (ml.kinnitatud='True')
+AND (ml.number=mlr.number)
+and mlr.kmk in (SELECT code FROM @pvn13_vat_codes_1_1)
+AND ((ISNULL(NULLIF(mlr.ettemaks,0),0)!=0) OR ((ISNULL(NULLIF(mlr.arvenumber,0),0)=0)))
+and mlr.tasuti < 0
+
+
+insert @pvn1_1_temp --purchase invoices
+SELECT
+    isnull((SELECT TOP 1 dar_veids FROM @pvn11_vat_codes vc WHERE vc.code = oar.kmkood),'A') AS dar_veids,
+    (SELECT TOP 1 do_limit FROM @pvn11_vat_codes vc WHERE vc.code = oar.kmkood) AS do_limit,
+    '1',
+    CAST(oa.hankija_arve AS nvarchar(30)) AS client_doc_nr,
+
+    CAST(oa.number AS nvarchar(30)) AS client_doc_nr,
+    CAST(oar.kmkood AS nvarchar(30)) AS vat_code,
+    CAST(oa.hankija_nimi AS nvarchar(30)) AS client_name,
+    CAST((SELECT TOP 1 kmregnr FROM hankijad WHERE hankijad.kood = oa.hankija_kood) AS nvarchar(30)) AS vat_reg_nr,
+
+    (CASE
+		WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) != 0 and oar.konto!=@account)
+			THEN
+				CAST(oar.summa * ISNULL(oa.kurssbv1, 1) AS decimal(15,4))
+		WHEN 
+			((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) = 0 and (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) = 0 and  oar.konto!=@account)
+			THEN
+			CAST(oar.summa * ISNULL(oa.kurssbv1, 1)AS decimal(15,4))
+        when ((ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) != 0 and oar.konto!=@account)
+			then
+				CAST((oar.a_summa * ISNULL(oa.kurssbv1, 1)) * (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0) / 100)  AS decimal(15,4))
+		when (oar.konto=@account) then 0
+    END) AS doc_sum,
+    (CASE
+		WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) != 0 and oar.konto!=@account)
+			THEN
+				CAST(oar.summa * ISNULL(oa.kurssbv1, 1) * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) / 100) AS decimal(15,4))
+		WHEN 
+			((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) = 0 and (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) = 0 and oar.konto!=@account)
+			THEN
+			cast(km as decimal(15,4))
+        when ((ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = oar.kmkood), 0)) != 0 and oar.konto!=@account)
+			then
+				CAST(oar.km * ISNULL(oa.kurssbv1, 1) AS decimal(15,4))
+		when (oar.konto=@account) then CAST(oar.summa * ISNULL(oa.kurssbv1, 1) AS decimal(15,4))
+    END) AS doc_vat,
+    REPLACE(CONVERT(VARCHAR, oa.aeg, 111), '/', '-') AS doc_date,
+   NULL,-- (select sum(summa) from or_arved_ettemaksud mae where mae.arve=oar.number and mae.kmk=oar.kmkood),
+	NULL
+  FROM or_arved oa, or_arved_read oar WITH (NOLOCK)
+  WHERE CAST(oa.kande_aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+    AND (oa.kinnitatud = 'True')
+    AND (oa.number = oar.number)
+    and (oar.kmkood in (SELECT code FROM @pvn11_vat_codes))
+
+insert @pvn1_1_temp --payments
+  SELECT
+    (SELECT TOP 1 dar_veids FROM @pvn11_vat_codes vc WHERE vc.code = otr.kmk) AS dar_veids,
+    (SELECT TOP 1 do_limit FROM @pvn11_vat_codes vc WHERE vc.code = otr.kmk) AS do_limit,
+   '3',
+    CAST(ot.number AS nvarchar(30)) AS client_doc_nr,
+    CAST(ot.number AS nvarchar(30)) AS client_doc_nr,
+    CAST(otr.kmk AS nvarchar(30)) AS vat_code,
+    CAST((SELECT CAST(nimi AS nvarchar(30)) FROM hankijad WITH (NOLOCK) WHERE (hankijad.kood=otr.hankija_kood)) AS nvarchar(30)) AS client_name,
+    CAST((SELECT CAST(kmregnr AS nvarchar(30)) FROM hankijad WITH (NOLOCK) WHERE (hankijad.kood=otr.hankija_kood)) AS nvarchar(30)) AS vat_reg_nr,
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = otr.kmk), 0)) != 0)
+        THEN CAST(otr.summa_p AS decimal(15,2))
+        ELSE CAST((otr.summa_p / (1 + @stat_vat / 100)) AS decimal(15,2))
+    END) AS doc_sum,
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = otr.kmk), 0)) != 0)
+        THEN CAST(otr.summa_p * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = otr.kmk), 0)) / 100) AS decimal(15,2))
+        ELSE CAST((otr.summa_p / (1 + @stat_vat / 100) * (@stat_vat / 100)) AS decimal(15,2))
+    END) AS doc_vat,
+    REPLACE(CONVERT(VARCHAR, ot.aeg, 111), '/', '-')  AS doc_date,
+    0,
+	etteid
+  FROM or_tasumised ot, or_tasumised_read otr WITH (NOLOCK)
+  WHERE CAST(ot.aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+    AND (ot.kinnitatud='True')
+    AND (ot.number=otr.number)
+    AND (EXISTS(SELECT 1 FROM @pvn11_vat_codes WHERE code = otr.kmk))
+UNION
+  select
+    (SELECT TOP 1 dar_veids FROM @pvn11_vat_codes vc WHERE vc.code = oae.kmk) AS dar_veids,
+    (SELECT TOP 1 do_limit FROM @pvn11_vat_codes vc WHERE vc.code = oae.kmk) AS do_limit,
+    '9',
+    cast((select hankija_arve from or_arved where number = oae.arve )as nvarchar(30)),
+    cast((select hankija_arve from or_arved where number = oae.arve )as nvarchar(30)),
+    oae.kmk,
+    cast((select nimi from hankijad h where h.kood = (select hankija_kood from or_arved oa where oa.number=oae.arve))+'XXXX' as nvarchar(30)),
+    cast((select kmregnr from hankijad h where h.kood = (select hankija_kood from or_arved oa where oa.number=oae.arve)) as nvarchar(30)),
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oae.kmk), 0)) != 0)
+        THEN CAST(oae.summa AS decimal(15,2)) - isnull(cast((select sum(summa) from or_arved_read oar where oar.number=oae.arve and oar.kmkood = oae.kmk) as decimal(15,2)),0)
+        ELSE CAST((oae.summa / (1 + @stat_vat / 100)) AS decimal(15,2)) - isnull(cast((select sum(summa) from or_arved_read oar where oar.number=oae.arve and oar.kmkood = oae.kmk) as decimal(15,2)),0)
+    END) AS doc_sum,
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oae.kmk), 0)) != 0)
+        THEN CAST(oae.summa * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oae.kmk), 0)) / 100) AS decimal(15,2)) 
+        - 
+        isnull(cast((select sum(summa) * (ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = oae.kmk),0)/100) from or_arved_read oar where oar.number=oae.arve and oar.kmkood = oae.kmk) as decimal(15,2)),0)
+        ELSE isnull(CAST((oae.summa / (1 + @stat_vat / 100) * (@stat_vat / 100)) AS decimal(15,2)),0)
+        -
+        isnull(cast((select (sum(summa) * (1 +  @stat_vat / 100))  from or_arved_read oar where oar.number=oae.arve and oar.kmkood = oae.kmk) as decimal(15,2)),0)
+    END) AS doc_vat,
+    REPLACE(CONVERT(VARCHAR, (select kande_aeg from  or_arved where number=oae.arve), 111), '/', '-')  AS doc_date,
+    0,
+	etteid
+  from or_arved_ettemaksud oae
+  where (select kande_aeg from or_arved oa where oa.number=oae.arve) between @aeg1 and @aeg2 and kmk in (select code from @pvn11_vat_codes)
+INSERT INTO @pvn1_1_temp --expenses
+	SELECT
+        (SELECT TOP 1 dar_veids FROM @pvn11_vat_codes vc WHERE vc.code = fkr.kmkood) AS dar_veids,
+        (SELECT TOP 1 do_limit FROM @pvn11_vat_codes vc WHERE vc.code = fkr.kmkood) AS do_limit,
+		'2',
+        cast(fkr.dokument as nvarchar(30)) AS client_doc_nr,
+		CAST(fkr.number AS nvarchar(30)) AS doc_nr,
+        cast(fkr.kmkood as nvarchar(30)) AS vat_code,
+        cast(fkr.hankija_nimi as nvarchar(30)) AS client_name,
+        cast((select kmregnr from hankijad where kood=fkr.hankija_kood) as nvarchar(30)),
+
+	   (CASE
+		WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) != 0)
+			THEN
+				CAST(fkr.summa * isnull(fkr.r_kurss,isnull(fk.kurssbv1,1)) AS decimal(15,4))
+		WHEN 
+			((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) = 0 and (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) = 0)
+			THEN
+			CAST(fkr.summa *  isnull(fkr.r_kurss,isnull(fk.kurssbv1,1)) AS decimal(15,4))
+        when ((ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) != 0)
+			then
+				CAST((fkr.a_summa * isnull(fkr.r_kurss,isnull(fk.kurssbv1,1))) * (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0) / 100)  AS decimal(15,4))
+    END) as doc_sum_wo_vat,
+	 (CASE
+		WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) != 0)
+			THEN
+				CAST(fkr.summa * isnull(fkr.r_kurss,isnull(fk.kurssbv1,1) * (ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) / 100) AS decimal(15,4))
+		WHEN 
+			((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) = 0 and (ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) = 0)
+			THEN
+			cast(reakm as decimal(15,4))
+        when ((ISNULL((SELECT TOP 1 proportion FROM @pvn11_vat_codes WHERE code = fkr.kmkood), 0)) != 0)
+			then
+				CAST((fkr.reakm *isnull(fkr.r_kurss,isnull(fk.kurssbv1,1))) 
+AS decimal(15,4))
+    END),
+
+        cast(isnull(fkr.aeg,fk.aeg) as date),
+       '0',
+	   NULL
+from fin_kulutused_read fkr with(nolock)
+left join fin_kulutused fk on fk.number=fkr.number
+where 
+      cast(isnull(fk.kande_aeg,fk.aeg) as date) between cast(@aeg1 as date) and cast(@aeg2 as date)
+      and fkr.kmkood in (select code from @pvn11_vat_codes)
+      AND (kinnitatud='True')
+	   
+update @pvn1_1_temp set vatc_prepayment=(select sum(summa) from or_arved_ettemaksud mae where mae.arve=doknr and mae.kmk=vat_code and prepid not in (select prepid from @pvn1_1_temp)) where dok_veids='1'
+
+
+insert @pvn1_1_values_by_doc
+select   
+        row_number() over(order by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date,directo_nr,vatc_prepayment) nr  
+        ,   dar_veids
+        ,   do_limit
+        ,   case when (dok_veids = '9' or dok_veids = '8') then '3' when (dok_veids='1' and sum(doc_sum) < 0) then '4'  else dok_veids end
+        ,   doc_nr
+        ,   directo_nr
+        ,   vat_code
+        ,   client_name
+        ,   isnull(vat_reg_nr,' ')
+                ,   case 
+                      when (dok_veids!='9') 
+                        then sum(doc_sum) 
+                      else 
+                      (case 
+                          when 
+                            (sum(doc_sum) < 0) 
+                            then 0
+                          else
+                            sum(doc_sum) * (-1) end)
+                    end  - 
+                          case when (dok_veids!='3') 
+                            then (
+                                  CASE 
+                                    WHEN (ISNULL((SELECT reverse_rate FROM @pvn11_vat_codes WHERE CODE=A.vat_code),0)!=0) 
+                                      THEN 
+                                        CAST(ISNULL(vatc_prepayment,0) AS DECIMAL(15,4))
+                                    WHEN (ISNULL((SELECT reverse_rate FROM @pvn11_vat_codes WHERE CODE=A.vat_code),0)=0)
+                                      THEN 
+                                        isnull(cast(vatc_prepayment / cast(1 + (select TOP 1 (ilmakm  / 100) from fin_kmkoodid where kood=a.vat_code) as decimal(15,4)) as decimal(15,4)),0)
+                              END
+                              )  
+                          else 
+                            isnull((select sum(summa) from or_arved_ettemaksud where etteid=a.prepid and arve in (select number from or_arved where cast(kande_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))),0) / iif(isnull((select ilmakm from fin_kmkoodid where kood=a.vat_code),0) > 0,((select ilmakm from fin_kmkoodid where kood=a.vat_code)/100)+1,1)
+                          end
+        ,   case 
+                      when (dok_veids!='9' or dok_veids='8') 
+                        then sum(doc_vat) 
+                      else 
+                      (case when (sum(doc_vat) < 0) then 0 else sum(doc_vat)*(-1) end)
+                    end - 
+                            case 
+                                when (dok_veids!='3') 
+                                  then (
+
+                                          CASE 
+                                    WHEN (ISNULL((SELECT reverse_rate FROM @pvn11_vat_codes WHERE CODE=A.vat_code),0)!=0) 
+                                      THEN 
+                                        isnull((cast((vatc_prepayment * cast((0 + (select POORD / 100 from fin_kmkoodid where kood=a.vat_code)) as decimal(15,4))) as decimal(15,4)) ),0)
+                                    WHEN (ISNULL((SELECT reverse_rate FROM @pvn11_vat_codes WHERE CODE=A.vat_code),0)=0)
+                                      THEN 
+                                        isnull((cast(vatc_prepayment - (vatc_prepayment / cast(1+ (select ilmakm / 100 from fin_kmkoodid where kood=a.vat_code) as decimal(15,4))) as decimal(15,4)) ),0)
+                                   END  
+                                        
+                                        ) 
+                                    else
+                                      isnull((select sum(summa) from or_arved_ettemaksud where etteid=a.prepid and arve in (select number from or_arved where cast(kande_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))),0) - (isnull((select sum(summa) from or_arved_ettemaksud where etteid=a.prepid and arve in (select number from or_arved where cast(kande_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))),0) / iif(isnull((select ilmakm from fin_kmkoodid where kood=a.vat_code),0) > 0,((select ilmakm from fin_kmkoodid where kood=a.vat_code)/100)+1,1))
+                                    end
+		,   doc_date
+        , 
+			case
+				when (a.dok_veids='1')
+					then
+						(select sum(doc_sum) from @pvn1_1_temp b where a.directo_nr=b.directo_nr and b.dok_veids=a.dok_veids)
+					when (a.dok_veids='1' and sum(doc_sum) < 0)
+					then
+						(select sum(doc_sum) from @pvn1_1_temp b where a.directo_nr=b.directo_nr and b.dok_veids=a.dok_veids)
+					when (a.dok_veids='4')
+					then
+						isnull((select sum(doc_sum) from @pvn1_1_temp b where a.directo_nr=b.directo_nr and b.dok_veids=a.dok_veids),0)
+					when (a.dok_veids not in ('1','4'))
+						then
+						(select sum(doc_sum) from @pvn1_1_temp b where a.directo_nr=b.directo_nr and b.dok_veids=a.dok_veids and a.doc_nr=b.doc_nr)
+				end
+			-
+				case
+					when (a.dok_veids='1')
+						then 
+							--(isnull((select sum(summa) from or_arved_ettemaksud where arve=a.directo_nr and kmk in (select distinct kmkood from or_arved_read where number=a.directo_nr)),0))
+							isnull((select sum(summa) from or_arved_ettemaksud where etteid=a.prepid and arve in (select number from or_arved where cast(kande_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))),0) / iif(isnull((select ilmakm from fin_kmkoodid where kood=a.vat_code),0) > 0,((select ilmakm from fin_kmkoodid where kood=a.vat_code)/100)+1,1)
+				when (a.dok_veids='3')
+						then 
+							isnull((select sum(summa) from or_arved_ettemaksud where etteid=a.prepid and arve in (select number from or_arved where cast(kande_aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))),0) / iif(isnull((select ilmakm from fin_kmkoodid where kood=a.vat_code),0) > 0,((select ilmakm from fin_kmkoodid where kood=a.vat_code)/100)+1,1)
+	
+						else
+							0
+				end
+        ,vatc_prepayment
+from @pvn1_1_temp a group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date,directo_nr, vatc_prepayment,prepid
+
+--select * from @pvn1_1_values_by_doc where doc_nr='SII1132603'
+--select * from @pvn1_1_temp where directo_nr='202400231'
+insert @pvn_1_1_totals
+select sum(doc_sum), sum(doc_vat) from @pvn1_1_values_by_doc
+insert @pvn1_1_sums_supplier
+select 
+            isnull(vat_reg_nr,' ')
+        ,   sum(doc_sum)
+        ,   sum(doc_vat)
+from @pvn1_1_values_by_doc
+where isnull(vat_reg_nr,' ')!=''
+GROUP BY vat_reg_nr
+
+insert @pvn1_1_top_table
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+        ,   directo_nr
+        ,   vat_code
+        ,   client_name
+        ,   vat_reg_nr
+        ,   doc_sum
+        ,   doc_vat
+        ,   doc_date
+        ,   rn
+from @pvn1_1_values_by_doc 
+where (doc_sum_total >= @lim or doc_sum_total <= (@lim * (-1)) and doc_sum_total <> 0) and isnull(do_limit,N'Ja')=N'Ja'
+
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat,directo_nr, rn
+insert @pvn1_1_top_table
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+        ,   directo_nr
+        ,   vat_code
+        ,   client_name
+        ,   vat_reg_nr
+        ,   doc_sum
+        ,   doc_vat
+        ,   doc_date
+        ,   rn
+from @pvn1_1_values_by_doc 
+where isnull(do_limit,N'Ja')=N'Ne' and doc_sum_total <> 0
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat,directo_nr, rn
+
+delete from @pvn1_1_values_by_doc where rn in (select rn from @pvn1_1_top_table)
+
+insert @pvn1_1_top_r_table
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+        ,   directo_nr
+        ,   vat_code
+        ,   client_name
+        ,   vat_reg_nr
+        ,   doc_sum
+        ,   doc_vat
+        ,   doc_date
+        , rn
+from @pvn1_1_values_by_doc 
+where dar_veids in ('R1','R2','R3','R4','R5','R6','R7','R8','R9')
+and directo_nr+'('+dar_veids+')'+'['+dok_veids+']' not in (select directo_nr+'('+dar_veids+')'+'['+dok_veids+']' from @pvn1_1_top_table)
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat,directo_nr,rn
+
+delete from @pvn1_1_values_by_doc where rn in (select rn from @pvn1_1_top_r_table)
+
+
+
+
+
+insert @pvn_1_1_v_totals
+select 
+            'V'
+        ,   CAST((SELECT TOP 1 SUBSTRING(NIMI,1,30) FROM hankijad Y WHERE Y.KMREGNR=Z.vat_reg_nr) AS NVARCHAR(30))
+    
+        ,   vat_reg_nr
+        ,   cast(doc_sum - cast(isnull((select sum(doc_sum) from @pvn1_1_top_table x where x.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4)) - cast(isnull((select sum(doc_sum) from @pvn1_1_top_r_table u where u.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4)) as decimal(15,4))
+        ,   cast(cast(doc_vat as decimal(15,2)) - 
+		cast(isnull((select sum(doc_vat) from @pvn1_1_top_table x where x.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,2)) - cast(isnull((select sum(cast(doc_vat as decimal(15,2))) from @pvn1_1_top_r_table u where u.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,2)) as decimal(15,2))
+from @pvn1_1_sums_supplier z 
+where (doc_sum >= @lim or doc_sum <= (@lim * (-1))) 
+and cast(doc_sum  - isnull((select sum(doc_sum) from @pvn1_1_top_table x where x.vat_reg_nr=z.vat_reg_nr),0) - isnull((select sum(doc_sum) from @pvn1_1_top_r_table u where u.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4)) <> 0
+and vat_reg_nr!=''
+
+
+insert @pvn_1_1_v_totals2
+select 'V', client_name, vat_reg_nr, doc_sum, doc_vat from @pvn_1_1_v_totals where (doc_sum >= @lim or doc_sum <= (@lim * (-1)))  
+delete from @pvn1_1_values_by_doc where vat_reg_nr in (select vat_reg_nr from @pvn_1_1_v_totals2)
+insert @pvn_1_1_t_totals
+select            cast(sum(doc_sum) as decimal(15,4))
+        ,   cast(sum(doc_vat) as decimal(15,4))
+        ,''
+from @pvn1_1_values_by_doc z
+
+
+
+
+-----------------
+------ 1-2 ------
+-----------------
+
+DECLARE @pvn12_vat_codes TABLE
+(
+  code nvarchar(30),
+  rate decimal,
+  reverse_rate decimal,
+  proportion decimal,
+  description nvarchar(200),
+  sales_account nvarchar(30),
+  purchase_account nvarchar(30),
+  info nvarchar(200),
+  dar_veids nvarchar(5),
+  do_limit varchar(2)
+
+)
+INSERT INTO @pvn12_vat_codes
+  SELECT kood, ilmakm, poord, or_proportsioon, seletus, myykkonto, ostuKMkonto, lisainfo,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='DARTIPS1_2' AND klass='kmk'), 'G') AS nvarchar(10)) AS dar_veids,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='LIMITS' AND klass='kmk'), 'Ja') AS varchar(2)) AS do_limit
+  FROM fin_kmkoodid fk
+  WHERE lisainfo LIKE '%pvn12%'
+
+DECLARE @pvn12_currencies TABLE (currency nvarchar(3))
+INSERT INTO @pvn12_currencies (currency)
+  SELECT DISTINCT kood FROM curr_rates
+
+--pvn12 main table
+DECLARE @pvn12_main_table TABLE
+(
+  dar_veids nvarchar(5),
+  do_limit varchar(2),
+  doc_nr nvarchar(30),
+  client_doc_nr nvarchar(30),
+  vat_code nvarchar(30),
+  directo_table nvarchar(30),
+  doc_type nvarchar(30),
+  client_name nvarchar(30),
+  vat_reg_nr nvarchar(30),
+  country_code nvarchar(2),
+  doc_sum decimal(15,2),
+  doc_vat decimal(15,2),
+  rate decimal(28,18),
+  currency nvarchar(30),
+  alt_rate decimal(28, 18),
+  alt_currency nvarchar(30),
+  alt_doc_currency_sum nvarchar(30),
+  doc_date nvarchar(30)
+)
+
+--pvn12 temp table
+DECLARE @pvn12_temp_table TABLE
+(
+  dar_veids nvarchar(5),
+  do_limit varchar(2),
+  doc_nr nvarchar(30),
+  client_doc_nr nvarchar(30),
+  vat_code nvarchar(30),
+  directo_table nvarchar(30),
+  doc_type nvarchar(30),
+  client_name nvarchar(30),
+  vat_reg_nr nvarchar(30),
+  country_code nvarchar(2),
+  doc_sum decimal(15,4),
+  doc_vat decimal(15,4),
+  rate decimal(28,18),
+  currency nvarchar(30),
+  alt_rate decimal(28, 18),
+  alt_currency nvarchar(30),
+  alt_doc_currency_sum nvarchar(30),
+  doc_date nvarchar(30),
+  vat_c_prepayment decimal
+)
+
+INSERT INTO @pvn12_temp_table --purchase invoices - temp
+  SELECT
+		(SELECT TOP 1 dar_veids FROM @pvn12_vat_codes vc WHERE vc.code =oar.kmkood) AS dar_veids,
+		'' AS do_limit,
+		CAST(oa.number AS nvarchar(30)) AS doc_nr,
+		CAST(oa.hankija_arve AS nvarchar(30)) AS client_doc_nr,
+		CAST(oar.kmkood AS nvarchar(30)) AS vat_code,
+		'purchase_invoice' AS directo_table,
+		CAST(oa.tyyp AS nvarchar(30)) AS doc_type,
+		CAST(oa.hankija_nimi AS nvarchar(30)) AS client_name,
+		CAST((SELECT TOP 1 kmregnr FROM hankijad WHERE hankijad.kood=oa.hankija_kood) AS nvarchar(30)) AS vat_reg_nr,
+		'--' AS country_code,
+		CAST(((select sum(summa) from or_arved_read where number=oar.number and kmkood=oar.kmkood) * ISNULL(oa.kurssbv1,1)) AS decimal(15,4)) AS doc_sum,
+		(CASE
+			WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = oar.kmkood), 0)) != 0)
+			THEN CAST((select sum(summa) from or_arved_read where number=oar.number and kmkood=oar.kmkood) * ISNULL(oa.kurssbv1, 1) * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = oar.kmkood), 0)) / 100) AS decimal(15,4))
+			ELSE CAST((select sum(summa) from or_arved_read where number=oar.number and kmkood=oar.kmkood)*(@stat_vat/100)*ISNULL(oa.kurssbv1,1) AS decimal(15,4))
+		END) AS doc_vat,
+    CAST(ISNULL(oa.kurssbv1,1) AS decimal(28,18)) AS rate,
+    CAST(oa.valuuta AS nvarchar(30)) AS currency,
+    1 AS alt_rate,
+    'EUR' AS alt_currency,
+    CAST(oa.lisa_field7 AS nvarchar(30)) AS alt_doc_currency_sum,
+    REPLACE(CONVERT(VARCHAR, oa.aeg, 111), '/', '-')  AS doc_date,
+	(select sum(summa) from or_arved_ettemaksud oae where oae.arve=oa.number and oae.kmk=oar.kmkood)
+  FROM or_arved_read oar, or_arved oa WITH (NOLOCK)
+  WHERE CAST(oa.kande_aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+    AND (kinnitatud='True')
+    AND (oa.number=oar.number)
+    AND (EXISTS(SELECT 1 FROM @pvn12_vat_codes WHERE code = oar.kmkood))
+UNION
+SELECT
+    (SELECT TOP 1 dar_veids FROM @pvn12_vat_codes vc WHERE vc.code = otr.kmk) AS dar_veids,
+    (SELECT TOP 1 do_limit FROM @pvn12_vat_codes vc WHERE vc.code = otr.kmk) AS do_limit,
+    CAST(isnull((select hankija_arve from or_arved where number=otr.ostuarve),ot.number) AS nvarchar(30)) AS client_doc_nr,
+    CAST(ot.number AS nvarchar(30)) AS client_doc_nr,
+    
+    CAST(otr.kmk AS nvarchar(30)) AS vat_code,
+    'payments' AS directo_table,
+    '' doc_type,
+    CAST((SELECT CAST(nimi AS nvarchar(30)) FROM hankijad WITH (NOLOCK) WHERE (hankijad.kood=otr.hankija_kood)) AS nvarchar(30)) AS client_name,
+    CAST((SELECT CAST(kmregnr AS nvarchar(30)) FROM hankijad WITH (NOLOCK) WHERE (hankijad.kood=otr.hankija_kood)) AS nvarchar(30)) AS vat_reg_nr,
+    '--' AS country_code,
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = otr.kmk), 0)) != 0)
+        THEN CAST(otr.summa_p AS decimal(15,2))
+        ELSE CAST((otr.summa_p / (1 + @stat_vat / 100)) AS decimal(15,2))
+    END) AS doc_sum,
+    (CASE
+      WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = otr.kmk), 0)) != 0)
+        THEN CAST(otr.summa_p * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = otr.kmk), 0)) / 100) AS decimal(15,2))
+        ELSE CAST((otr.summa_p / (1 + @stat_vat / 100) * (@stat_vat / 100)) AS decimal(15,2))
+    END) AS doc_vat,
+    CAST(ISNULL(otr.kurss_a,1) AS decimal(28,18)) AS rate,
+    CAST(otr.valuuta_a AS nvarchar(30)) AS currency,
+     1 AS alt_rate,
+    'EUR' AS alt_currency,
+    '',
+    REPLACE(CONVERT(VARCHAR, ot.aeg, 111), '/', '-')  AS doc_date,
+	0
+  FROM or_tasumised ot, or_tasumised_read otr WITH (NOLOCK)
+  WHERE CAST(ot.aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+    AND (ot.kinnitatud='True')
+    AND (ot.number=otr.number)
+    AND (EXISTS(SELECT 1 FROM @pvn12_vat_codes WHERE code = otr.kmk))
+	and isnull(otr.ostuarve,'')=''
+UNION
+  SELECT
+		(SELECT TOP 1 dar_veids FROM @pvn12_vat_codes vc WHERE vc.code =oar.kmk) AS dar_veids,
+		'' AS do_limit,
+		CAST(oa.number AS nvarchar(30)) AS doc_nr,
+		CAST(oa.hankija_arve AS nvarchar(30)) AS client_doc_nr,
+		CAST(oar.kmk AS nvarchar(30)) AS vat_code,
+		'prepayment' AS directo_table,
+		CAST(oa.tyyp AS nvarchar(30)) AS doc_type,
+		CAST(oa.hankija_nimi AS nvarchar(30)) AS client_name,
+		CAST((SELECT TOP 1 kmregnr FROM hankijad WHERE hankijad.kood=oa.hankija_kood) AS nvarchar(30)) AS vat_reg_nr,
+		'--' AS country_code,
+		CAST((oar.summa)*ISNULL(oa.kurssbv1,1) AS decimal(15,4)) AS doc_sum,
+		(CASE
+			WHEN ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = oar.kmk), 0)) != 0)
+			THEN CAST(oar.summa * ISNULL(oa.kurssbv1, 1) * ((ISNULL((SELECT TOP 1 reverse_rate FROM @pvn12_vat_codes WHERE code = oar.kmk), 0)) / 100) AS decimal(15,4))
+			ELSE CAST((oar.summa)*(@stat_vat/100)*ISNULL(oa.kurssbv1,1) AS decimal(15,4))
+		END) AS doc_vat,
+    CAST(ISNULL(oa.kurssbv1,1) AS decimal(28,18)) AS rate,
+    CAST(oa.valuuta AS nvarchar(30)) AS currency,
+    1 AS alt_rate,
+    'EUR' AS alt_currency,
+    CAST(oa.lisa_field7 AS nvarchar(30)) AS alt_doc_currency_sum,
+    REPLACE(CONVERT(VARCHAR, oa.aeg, 111), '/', '-')  AS doc_date,
+	0
+  FROM or_arved_ettemaksud oar, or_arved oa WITH (NOLOCK)
+  WHERE CAST(oa.kande_aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+    AND (oa.kinnitatud='True')
+   AND (oa.number=oar.arve)
+    AND (EXISTS(SELECT 1 FROM @pvn12_vat_codes WHERE code = oar.kmk))
+
+INSERT INTO @pvn12_main_table --purchase invoices - main
+  SELECT 
+				dar_veids
+			,	do_limit
+			,	doc_nr
+			,	client_doc_nr
+			, '' as vat_code
+			, directo_table
+			,	doc_type
+			,	client_name
+			,	vat_reg_nr
+			,	country_code
+			, case 
+				when (directo_table='purchase_invoice') 
+					then  SUM(doc_sum) - isnull((select sum(doc_sum) from @pvn12_temp_table where directo_table='prepayment' and doc_nr=b.doc_nr),0) 
+				else 
+					SUM(doc_sum)
+				end
+			, case 
+				when (directo_table='purchase_invoice') 
+					then  SUM(doc_vat) - isnull((select sum(doc_vat) from @pvn12_temp_table where directo_table='prepayment' and doc_nr=b.doc_nr),0) 
+				else 
+					SUM(doc_vat)
+				end, rate, currency, alt_rate, alt_currency, alt_doc_currency_sum, doc_date
+  FROM @pvn12_temp_table b
+  where
+  directo_table not in ('prepayment')
+  GROUP BY dar_veids, do_limit, doc_nr, client_doc_nr, directo_table, doc_type, client_name, vat_reg_nr, country_code, rate, currency, alt_rate, alt_currency, alt_doc_currency_sum, doc_date
+
+
+INSERT INTO @pvn12_main_table --expenses
+
+SELECT
+        (SELECT TOP 1 dar_veids FROM @pvn12_vat_codes vc WHERE vc.code = fkr.kmkood) AS dar_veids,
+        (SELECT TOP 1 do_limit FROM @pvn12_vat_codes vc WHERE vc.code = fkr.kmkood) AS do_limit,
+        CAST(fkr.number AS nvarchar(30)) AS doc_nr,
+        cast(fkr.dokument as nvarchar(30)) AS client_doc_nr,
+        cast(fkr.kmkood as nvarchar(30)) AS vat_code,
+        'expense' AS directo_table,
+        'Fakturrekins' AS doc_type,
+        cast(fkr.hankija_nimi as nvarchar(30)) AS client_name,
+        cast((select kmregnr from hankijad where kood=fkr.hankija_kood) as nvarchar(30)),
+        '--',
+        cast(fkr.summa * isnull(fkr.r_kurss,isnull(fk.kurssbv1,1)) as decimal(15,2)),
+        cast((fkr.summa * (@stat_vat / 100)) *  isnull(r_kurss,1) as decimal(15,2)),
+        cast(isnull(fkr.r_kurss,isnull(fk.kurssbv1,1)) as decimal(28,18)),
+        cast(isnull(fkr.r_valuuta,isnull(fk.valuuta,'EUR')) as nvarchar(255)),
+        1,
+        'EUR',
+        CAST(fk.lisa_field7 AS nvarchar(30)) AS alt_doc_currency_sum,
+        REPLACE(CONVERT(VARCHAR, isnull(fkr.aeg,fk.aeg), 111), '/', '-')  AS doc_date
+from fin_kulutused_read fkr with(nolock)
+left join fin_kulutused fk on fk.number=fkr.number
+where 
+      cast(isnull(fkr.aeg,fk.aeg) as date) between cast(@aeg1 as date) and cast(@aeg2 as date)
+      and fkr.kmkood in (select code from @pvn12_vat_codes)
+      AND (kinnitatud='True')
+
+UPDATE @pvn12_main_table SET country_code = SUBSTRING(vat_reg_nr, 1, 2)
+
+UPDATE @pvn12_main_table
+SET alt_currency =
+    (CASE
+      WHEN country_code = 'BG' THEN 'BGN' 
+      WHEN country_code = 'CZ' THEN 'CZK'
+      WHEN country_code = 'DK' THEN 'DKK'
+      WHEN country_code = 'GB' THEN 'GBP'
+      WHEN country_code = 'HU' THEN 'HUF'
+      WHEN country_code = 'LT' AND CAST(doc_date AS date) < CAST('2015.01.01' AS date) THEN 'LTL'
+      WHEN country_code = 'PL' THEN 'PLN'
+      WHEN country_code = 'RO' THEN 'RON'
+      WHEN country_code = 'SE' THEN 'SEK'
+      ELSE 'EUR' END)
+
+UPDATE @pvn12_main_table
+SET alt_rate =
+  ISNULL((SELECT TOP 1 CAST(curr_rates.kurss1 AS decimal(28,18))
+  FROM curr_rates
+  WHERE curr_rates.kood = alt_currency
+    AND CAST(curr_rates.aeg AS date) <= DATEADD(day, -1, CAST(doc_date AS date))
+  ORDER BY curr_rates.aeg DESC), 1)
+
+UPDATE @pvn12_main_table SET dar_veids = (SELECT TOP 1 dar_veids FROM @pvn12_vat_codes vc WHERE vc.code = vat_code) where dar_veids is null
+UPDATE @pvn12_main_table SET do_limit = (SELECT TOP 1 do_limit FROM @pvn12_vat_codes vc WHERE vc.code = vat_code)
+
+-----------------
+------ 1-3 ------
+-----------------
+--izveidojam PVN 13 kodu tabulu
+  DECLARE @pvn13_vat_codes TABLE
+  (
+    code nvarchar(30),
+    rate decimal,
+    description nvarchar(200),
+    sales_account nvarchar(30),
+    purchase_account nvarchar(30),
+    info nvarchar(200),
+    dar_veids nvarchar(5),
+    do_limit varchar(2)
+  )
+  INSERT INTO @pvn13_vat_codes
+    SELECT kood, ilmakm, seletus, myykkonto, ostuKMkonto, lisainfo,
+      CAST(ISNULL((SELECT TOP 1 replace(sisu,'_','.') FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='DARTIPS1_3' AND klass='kmk'), '41') AS nvarchar(10)) AS dar_veids,
+      CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='LIMITS' AND klass='kmk'), 'Ja') AS varchar(2)) AS do_limit
+    FROM fin_kmkoodid fk
+    WHERE lisainfo LIKE '%pvn13%'
+
+
+Declare @pvn1_3_temp TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+	doc_nr_add nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+		reg_nr nvarchar(30),
+    doc_sum decimal(15,4),
+    doc_vat decimal(15,4),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,4),
+    vatc_prepayment decimal(15,4),
+	prepaymentId nvarchar(10)
+)
+Declare @pvn1_3_values_by_doc TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+	doc_nr_add nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,4),
+    vatc_prepayment decimal(15,4),
+	rn int
+)
+Declare @pvn1_3_top_table TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+	doc_nr_add nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,4),
+    vatc_prepayment decimal(15,4),
+	rn int
+)
+
+
+
+
+Declare @pvn1_3_top_tablex TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+	doc_nr_add nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,4),
+    vatc_prepayment decimal(15,4),
+	rn int
+)
+Declare @tdeals TABLE
+(
+    dar_veids nvarchar(5),
+    do_limit varchar(2),
+    dok_veids nvarchar(1),
+    doc_nr nvarchar(30),
+	doc_nr_add nvarchar(30),
+    vat_code nvarchar(30),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2),
+    doc_date nvarchar(30),
+    doc_sum_total decimal(15,4),
+    vatc_prepayment decimal(15,4),
+	rn int
+)
+
+
+
+Declare @pvn1_3_top_sums_customer TABLE
+(
+ 
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+)
+
+Declare @pvn1_3_sums_customer TABLE
+(
+  
+    vat_reg_nr nvarchar(30),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+)
+ declare @v_totals TABLE
+  (
+    dok_veids nvarchar(32),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(34),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+  declare @x_totals TABLE
+  (
+    dok_veids nvarchar(32),
+    client_name nvarchar(30),
+    vat_reg_nr nvarchar(32),
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+   declare @t_totals TABLE
+  (
+    doc_sum decimal(15,2),
+    doc_vat decimal(15,2)
+  )
+
+
+--ielasam visas rēķina rindas kuras ir ar 1 - 3 atšifrējamajiem pvn kodiem
+
+insert @pvn1_3_temp
+ SELECT
+      (SELECT TOP 1 dar_veids FROM @pvn13_vat_codes vc WHERE vc.code = mr_arved_read.kmk) AS dar_veids,
+      (SELECT TOP 1 do_limit FROM @pvn13_vat_codes vc WHERE vc.code = mr_arved_read.kmk) AS do_limit,
+      case when (isnull(ettemaks,0) = 0) then '1' else '1' end AS dok_veids,
+      mr_arved_read.number AS doc_nr,
+	   convert(nvarchar(max),iif(@df_invoice_number!='',(
+		case 
+			when (@df_invoice_number='1') then (mr_arved.lisa_field1)
+			when (@df_invoice_number='2') then (mr_arved.lisa_field2)
+			when (@df_invoice_number='3') then (mr_arved.lisa_field3)
+			when (@df_invoice_number='4') then (mr_arved.lisa_field4)
+			when (@df_invoice_number='5') then (mr_arved.lisa_field5)
+			when (@df_invoice_number='6') then (mr_arved.lisa_field6)
+			when (@df_invoice_number='7') then (mr_arved.lisa_field7)
+		end
+	  ),convert(nvarchar(max),mr_arved_read.number))),
+      kmk as vat_code,
+      CAST((klient_nimi) AS nvarchar(30)) AS client_name,
+    SUBSTRING((case	when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)=2) then (iif(@customerVatNo='CARD',isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood)),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,isnull((select kmregnr from kliendid where kood=mr_arved.klient_kood),(select regnr from kliendid where kood=mr_arved.klient_kood)))))
+			when (isnull((select maa from kliendid where kood=mr_arved.klient_kood),0)!=2) then ((iif(@customerVatNo='CARD',
+			(select kmregnr from kliendid where kood=mr_arved.klient_kood),iif(isnull(mr_arved.kmregnumber,'')!='',mr_arved.kmregnumber,(select kmregnr from kliendid where kood=mr_arved.klient_kood)))))end),0,30) AS vat_reg_nr,
+	  SUBSTRING(ISNULL((select regnr from kliendid where kood=mr_arved.klient_kood),''),1,30)  AS reg_nr,
+      CAST((ROUND(ISNULL(summa * kurssBV1, 0), 4)) AS decimal(15,4)) AS doc_sum,
+
+      isnull(cast((ROUND(ISNULL(summa * kurssBV1, 0), 4) * (NULLIF((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes WHERE code = mr_arved_read.kmk), 0) / 100), 0))) AS decimal(15,4)),'0.00') AS doc_vat,
+
+      REPLACE(CONVERT(VARCHAR, aeg, 111), '/', '-')  AS doc_date
+    ,ISNULL(((select sum(summa * isnull(r_kurss,1)) from mr_arved_read mar1 where mar1.number=mr_arved_read.number and kmk in (select code from @pvn13_vat_codes)) 
+	-- isnull((select sum(summa * r_kurss) from mr_arved_read mar1 where number = (select number from mr_arved mr1 where mr1.kredarve=mar1.number) and kmk in (select code from @pvn13_vat_codes)),0)
+	),0)
+   ,0,-- ,ISNULL((select sum(summa) * isnull((select kurssBV1 from mr_arved where number=mr_arved_read.number),1) from mr_arved_ettemaksud mae where mae.arve=mr_arved_read.number and mae.kmk=mr_arved_read.kmk),0),
+	NULL
+    FROM mr_arved_read WITH (NOLOCK) INNER JOIN mr_arved ON mr_arved_read.number=mr_arved.number
+    WHERE
+      CAST(aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+      AND (kinnitatud = 1)
+      and kmk in (SELECT code FROM @pvn13_vat_codes)
+      and artikkel is not null 
+		and mr_arved.kokku >=0
+
+insert @pvn1_3_temp
+  SELECT
+       (SELECT TOP 1 dar_veids FROM @pvn13_vat_codes vc WHERE vc.code = mlr.kmk) AS dar_veids,
+      (SELECT TOP 1 do_limit FROM @pvn13_vat_codes vc WHERE vc.code = mlr.kmk) AS do_limit,
+      '3' AS dok_veids,
+      CAST(ml.number AS nvarchar(30)) AS doc_nr,
+	  CAST(ml.number AS nvarchar(30)) AS doc_nr,
+      CAST(mlr.kmk AS nvarchar(30)) AS vat_code,
+      CAST((SELECT TOP 1 nimi FROM kliendid WITH (NOLOCK) WHERE (kliendid.kood=mlr.klient_kood)) AS nvarchar(30)) AS client_name,
+     CAST((SELECT TOP 1 kmregnr FROM kliendid WITH (NOLOCK) WHERE (kliendid.kood=mlr.klient_kood)) AS nvarchar(30)) AS vat_reg_nr,
+	 CAST((SELECT regnr FROM kliendid WITH (NOLOCK) WHERE kliendid.kood=mlr.klient_kood) AS nvarchar(30)) AS reg_nr,
+      CAST((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes WHERE code=mlr.kmk),0)/100)+1)) AS decimal(15,4)) AS doc_sum,
+      CAST(((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes WHERE code=mlr.kmk),0)/100)+1))*(ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes WHERE code=mlr.kmk),0)/100)) AS decimal(15,4)) AS doc_vat,
+      REPLACE(CONVERT(VARCHAR, ml.aeg, 111), '/', '-')  AS doc_date,
+      CAST((ROUND(mlr.tasuti,2)/((ISNULL((SELECT TOP 1 rate FROM @pvn13_vat_codes WHERE code=mlr.kmk),0)/100)+1)) AS decimal(15,4)),
+      0,
+	  etteID
+FROM mr_laekumised ml, mr_laekumised_read mlr WITH (NOLOCK)
+WHERE CAST(ml.aeg AS date) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+AND (ml.kinnitatud='True')
+AND (ml.number=mlr.number)
+and mlr.kmk in (SELECT code FROM @pvn13_vat_codes)
+AND ((ISNULL(NULLIF(mlr.ettemaks,0),0)!=0) OR ((ISNULL(NULLIF(mlr.arvenumber,0),0)=0)))
+and mlr.tasuti > 0
+
+
+insert @pvn1_3_values_by_doc
+select      dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   IIF(ISNULL(vat_reg_nr,'')='',@defVatRegNo,vat_reg_nr)
+       ,   round(sum(doc_sum ),2) - 
+	   round((case 
+								when (dok_veids in ('3')) then (isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.etteID=prepaymentId and mae.kmk=pvn13temp.vat_code and arve in (select number from mr_arved where cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code)),0))
+								when (dok_veids in ('1')) then (
+								isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where  mae.kmk=pvn13temp.vat_code and arve=pvn13temp.doc_nr and mae.etteid not in (select prepaymentId from @pvn1_3_temp where prepaymentId is not null)) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code)),
+								isnull((select sum(summa * isnull(r_kurss,1))*(-1) from  mr_arved_read where number=(select number from mr_arved where kredarve=pvn13temp.doc_nr and cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date)) and kmk=pvn13temp.vat_code),0)
+								)
+								) else 0 end),2)
+        -- (sum(summa) / cast(1 + (select ilmakm  / 100 from fin_kmkoodid where kood=mae.kmk) as decimal(15,4))
+
+
+		,   round(sum(doc_vat),2) - 
+		round((case when (dok_veids in ('3')) then (isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.etteID=prepaymentId and mae.kmk=pvn13temp.vat_code and arve in (select number from mr_arved where cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))) - ((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.etteID=prepaymentId and mae.kmk=pvn13temp.vat_code and arve in (select number from mr_arved where cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code))),0))
+	 when (dok_veids in ('1')) then (isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where  mae.kmk=pvn13temp.vat_code and  arve=pvn13temp.doc_nr and mae.etteid not in (select prepaymentId from @pvn1_3_temp where prepaymentId is not null)) - ((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.kmk=pvn13temp.vat_code  and arve=pvn13temp.doc_nr  and mae.etteID not in (select prepaymentId from @pvn1_3_temp where prepaymentId is not null)) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code))),isnull(((select sum(summa * isnull(r_kurss,1))*(-1) from  mr_arved_read where number=(select number from mr_arved where kredarve=pvn13temp.doc_nr and cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date)) and kmk=pvn13temp.vat_code) * (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code))) - (select sum(summa * isnull(r_kurss,1))*(-1) from  mr_arved_read where number=(select number from mr_arved where kredarve=pvn13temp.doc_nr and cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date)) and kmk=pvn13temp.vat_code),0)))
+		else 0 end),2)
+        ,   doc_date
+        ,   doc_sum_total
+      --  ,   (SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where  mae.kmk=pvn13temp.vat_code and  arve=pvn13temp.doc_nr and prepaymentId not in (select prepaymentId from @pvn1_3_temp))
+	  ,round((case when (dok_veids in ('3')) then (isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.etteID=prepaymentId and mae.kmk=pvn13temp.vat_code and arve in (select number from mr_arved where cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))) - ((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.etteID=prepaymentId and mae.kmk=pvn13temp.vat_code and arve in (select number from mr_arved where cast(aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date))) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code))),0))
+		 when (dok_veids in ('1')) then (isnull((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where  mae.kmk=pvn13temp.vat_code and  arve=pvn13temp.doc_nr and mae.etteid not in (select prepaymentId from @pvn1_3_temp where prepaymentId is not null)) - ((SELECT cast(sum(summa) as decimal(15,4)) FROM mr_arved_ettemaksud mae where mae.kmk=pvn13temp.vat_code  and arve=pvn13temp.doc_nr  and mae.etteID not in (select prepaymentId from @pvn1_3_temp where prepaymentId is not null)) / (1 + (select ilmakm  / 100 from fin_kmkoodid where kood=pvn13temp.vat_code))),0))
+		else 0 end),2)
+		,	row_number() over(order by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, vatc_prepayment,reg_nr,prepaymentId,doc_nr_add) nr  
+from @pvn1_3_temp pvn13temp group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, vatc_prepayment,reg_nr,prepaymentId,doc_nr_add
+
+insert @pvn1_3_sums_customer
+select 
+            isnull(vat_reg_nr,'')
+        ,   sum(doc_sum)
+        ,   sum(doc_vat)
+from @pvn1_3_values_by_doc
+--where isnull(vat_reg_nr,'')!=''
+GROUP BY vat_reg_nr
+
+create table #fin_kanded_read
+(
+sum_wo_vat decimal(15,4),
+vat_sum decimal(15,4)
+)
+declare @sql nvarchar(max), @accwovat nvarchar(255), @vatcwovat nvarchar(255),@accvat nvarchar(255), @vatcvat nvarchar(255), @transType nvarchar(255), @accwovattxtpart nvarchar(max), @accvattxtpart nvarchar(max)
+select @transType = kood, @accwovat = param1, @vatcwovat = param2, @accvat = param3, @vatcvat = param4 from tr_params where tyyp='PVN_ADD_CONFIG_TRANSACTION'
+
+select @accwovattxtpart = iif(len(@accwovat) >=3,' konto in ('''+convert(nvarchar(max),replace(@accwovat,',',''','''))+''')','substring(konto,1,'+''+convert(nvarchar(max),len(@accwovat))+')='''+replace(@accwovat,',',''',''')+'''')
+select @accvattxtpart = iif(len(@accvat) >=3,' konto in ('''+convert(nvarchar(max),replace(@accvat,',',''','''))+''')','substring(konto,1,'+''+convert(nvarchar(max),len(@accvat))+')='''+replace(@accvat,',',''',''')+'''')
+
+select @sql = 'insert #fin_kanded_read select 
+		0,isnull(sum(
+			case
+				when (baas1deebet < 0) then (baas1deebet   * (-1))
+				when (baas1kreedit > 0) then (baas1kreedit)
+				end
+		),0) - isnull(sum(
+			case
+				when (baas1deebet > 0) then (baas1deebet)
+				when (baas1kreedit < 0) then (baas1kreedit * (-1))
+				end
+		),0) from fin_kanded_read where tyyp in ('''+replace(@transType,',',''',''')+''') and cast(r_aeg as date) between cast('''+convert(nvarchar(max),@aeg1,121)+''' as date) and cast('''+convert(nvarchar(max),dateadd(ss,-1,dateadd(dd,1,@aeg2)),121)+''' as date) and '+@accwovattxtpart+' and kmkood in ('''+replace(@vatcwovat,',',''',''')+''') 
+		union
+select 
+		isnull(sum(
+			case
+				when (baas1deebet < 0) then (baas1deebet   * (-1))
+				when (baas1kreedit > 0) then (baas1kreedit)
+				end
+		),0) - isnull(sum(
+			case
+				when (baas1deebet > 0) then (baas1deebet)
+				when (baas1kreedit < 0) then (baas1kreedit * (-1))
+				end
+		),0),0  from fin_kanded_read where  tyyp in ('''+replace(@transType,',',''',''')+''') and cast(r_aeg as date) between cast('''+convert(nvarchar(max),@aeg1,121)+''' as date) and cast('''+convert(nvarchar(max),dateadd(ss,-1,dateadd(dd,1,@aeg2)),121)+''' as date) and '+@accvattxtpart+' and kmkood in ('''+replace(@vatcvat,',',''',''')+''')'
+ exec(@sql)
+
+
+
+declare @pvn1_3tots table
+(
+doc_sum decimal(15,4),
+doc_vat decimal(15,4)
+)
+insert @pvn1_3tots
+SELECT CAST(isnull(SUM(doc_sum),0) + isnull((select sum(sum_wo_vat) from #fin_kanded_read),0) AS decimal(15,4)) AS sum_total, CAST(isnull(SUM(doc_vat),0) + isnull((select sum(vat_sum) from #fin_kanded_read),0) AS decimal(15,4)) AS vat_total
+  FROM @pvn1_3_values_by_doc
+insert @pvn1_3_top_table
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+        ,   doc_sum
+        ,   doc_vat
+        ,   doc_date
+        ,   doc_sum_total
+        ,   vatc_prepayment
+		,	rn
+from @pvn1_3_values_by_doc 
+where (doc_sum_total >= @lim or doc_sum_total <= (@lim * (-1))) and doc_sum<>0 and isnull(vat_reg_nr,'')!='' and isnull(do_limit,N'Ja')=N'Ja'
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat, vatc_prepayment, rn,doc_nr_add
+
+insert @pvn1_3_top_table
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+         ,  cast(doc_sum as decimal(15,2))
+        ,   cast(doc_vat as decimal(15,2))
+        ,   doc_date
+        ,   doc_sum_total
+        ,   vatc_prepayment
+		,	rn
+from @pvn1_3_values_by_doc 
+where doc_sum<>0 and isnull(vat_reg_nr,'')!='' and isnull(do_limit,N'Ja')=N'Ne'
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat, vatc_prepayment, rn,doc_nr_add
+
+delete from @pvn1_3_values_by_doc where rn in (select rn from @pvn1_3_top_table)
+
+insert @pvn1_3_top_tablex
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+        ,   cast(doc_sum as decimal(15,2))
+        ,   cast(doc_vat as decimal(15,2))
+        ,   doc_date
+        ,   doc_sum_total
+        ,   vatc_prepayment
+		, rn
+from @pvn1_3_values_by_doc 
+where (doc_sum_total >= @lim or doc_sum_total <= (@lim * (-1))) and isnull(vat_reg_nr,'')=''
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat, vatc_prepayment, rn,doc_nr_add
+delete from @pvn1_3_values_by_doc where rn in (select rn from @pvn1_3_top_tablex)
+
+
+
+insert @pvn1_3_top_sums_customer
+select 
+           replace(vat_reg_nr,@defVatRegNo,'')
+        ,   sum(doc_sum)
+        ,   sum(doc_vat)
+from @pvn1_3_top_table
+where isnull(vat_reg_nr,'')!=@defVatRegNo
+GROUP BY vat_reg_nr
+insert @v_totals
+select 
+            'V'
+        ,   CAST((SELECT TOP 1 SUBSTRING(NIMI,1,30) FROM KLIENDID Y WHERE Y.KMREGNR=Z.vat_reg_nr) AS NVARCHAR(30))
+    
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+        ,   cast(doc_sum  - isnull((select top 1 doc_sum from @pvn1_3_top_sums_customer x where x.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4))
+        ,   cast(doc_vat  - isnull((select top 1 doc_vat from @pvn1_3_top_sums_customer x where x.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4))
+from @pvn1_3_sums_customer z 
+where (doc_sum >= @lim or doc_sum <= (@lim * (-1))) 
+and cast(doc_sum  - isnull((select top 1 doc_sum from @pvn1_3_top_sums_customer x where x.vat_reg_nr=z.vat_reg_nr),0) as decimal(15,4)) > @lim
+and isnull(vat_reg_nr,'')!=@defVatRegNo
+delete from @pvn1_3_values_by_doc where vat_reg_nr in (select vat_reg_nr from @v_totals)
+
+
+
+insert @tdeals
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+ ,   cast(doc_sum as decimal(15,2))
+        ,   cast(doc_vat as decimal(15,2))
+        ,   doc_date
+        ,   doc_sum_total
+        ,   vatc_prepayment
+		,	rn
+from @pvn1_3_values_by_doc 
+where (doc_sum between (@lim * (-1)) and @lim) and isnull(vat_reg_nr,'')!=''
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat, vatc_prepayment, rn,doc_nr_add
+insert @tdeals
+select 
+            dar_veids
+        ,   do_limit
+        ,   dok_veids
+        ,   doc_nr
+		,	doc_nr_add
+        ,   vat_code
+        ,   client_name
+        ,   replace(vat_reg_nr,@defVatRegNo,'')
+        ,   doc_sum
+        ,   doc_vat
+        ,   doc_date
+        ,   doc_sum_total
+        ,   vatc_prepayment
+		,	rn
+from @pvn1_3_values_by_doc 
+where (doc_sum between (@lim * (-1)) and @lim) and isnull(vat_reg_nr,'')=''
+group by dar_veids, do_limit, dok_veids, doc_nr, vat_code, client_name, vat_reg_nr, doc_date, doc_sum_total, doc_sum, doc_vat, vatc_prepayment, rn,doc_nr_add
+
+
+delete from @pvn1_3_values_by_doc where rn in (select rn from @tdeals)
+insert @t_totals
+select 
+           cast(isnull(sum(doc_sum),0) as decimal(15,4))
+        ,   cast(isnull(sum(doc_vat),0) as decimal(15,4))
+from @tdeals z
+
+insert @x_totals
+select 
+            'X'
+        ,   ''
+        ,   ''
+        ,   cast(sum(doc_sum) as decimal(15,4))
+        ,   cast(sum(doc_vat)  as decimal(15,4))
+from @pvn1_3_top_tablex z 
+
+
+-----------------
+------ 2-1 ------
+-----------------
+
+DECLARE @pvn21_vat_codes TABLE
+(
+  code nvarchar(30),
+  rate decimal,
+  proportion decimal,
+  description nvarchar(200),
+  sales_account nvarchar(30),
+  purchase_account nvarchar(30),
+  info nvarchar(200),
+  dar_veids nvarchar(5),
+  do_limit varchar(2)
+)
+INSERT INTO @pvn21_vat_codes
+  SELECT kood, ilmakm, or_proportsioon, seletus, myykkonto, ostuKMkonto, lisainfo,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='DARTIPS_2' AND klass='kmk'), 'G') AS nvarchar(10)) AS dar_veids,
+    CAST(ISNULL((SELECT TOP 1 sisu FROM yld_data yd WITH (NOLOCK) WHERE yd.kaart=fk.kood AND kood='LIMITS' AND klass='kmk'), 'Ja') AS varchar(2)) AS do_limit
+  FROM fin_kmkoodid fk
+  WHERE lisainfo LIKE '%pvn21%'
+
+DECLARE @invoices TABLE
+(
+  pazime nvarchar(5),
+  do_limit varchar(2),
+  vat_reg_nr nvarchar(30),
+  doc_nr nvarchar(30),
+  vat_code nvarchar(30),
+  article_sum decimal(15,2)
+)
+
+INSERT INTO @invoices
+
+select
+	distinct 
+		(select dar_veids from @pvn21_vat_codes where code=kmk),
+		(select do_limit from @pvn21_vat_codes where code=kmk),
+		substring(isnull((SELECT TOP 1 kmregnr FROM kliendid WHERE (kliendid.kood=(select klient_kood from mr_arved where mr_arved.number=mar.number))),''),1,30),
+		mar.number,
+		mar.kmk,
+		cast(sum(summa) * (SELECT ISNULL(kurssbv1,1) FROM mr_arved WITH (NOLOCK) WHERE mr_arved.number=mar.number) as decimal(15,4))
+from mr_arved_read mar
+WHERE (SELECT CAST(aeg AS date) FROM mr_arved WITH (NOLOCK) WHERE mr_arved.number=mar.number) BETWEEN CAST(@aeg1 AS date) AND CAST(@aeg2 AS date)
+   AND ((SELECT kinnitatud FROM mr_arved WITH (NOLOCK) WHERE mr_arved.number=mar.number)=1)
+   AND (EXISTS(SELECT 1 FROM @pvn21_vat_codes WHERE code = kmk))
+   and kmk in (select code from @pvn21_vat_codes)
+group by number, kmk
+union
+select
+		(select dar_veids from @pvn21_vat_codes where code=mlr.kmk),
+		(select do_limit from @pvn21_vat_codes where code=mlr.kmk),
+		substring(isnull((SELECT TOP 1 kmregnr FROM kliendid WHERE (kliendid.kood=mlr.klient_kood)),''),1,30),
+		mlr.number,
+		mlr.kmk,
+		cast(sum(summa_p) * (ISNULL(kurss_p,1)) as decimal(15,4))
+from mr_laekumised_read mlr
+left join mr_laekumised ml on ml.number=mlr.number
+where cast(ml.aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date)
+and isnull(ml.kinnitatud,0)=1
+and mlr.kmk in (select code from @pvn21_vat_codes)
+group by mlr.number,mlr.kmk, mlr.klient_kood, mlr.summa_p,mlr.kurss_p
+
+DECLARE @invoices_grouped TABLE (pazime nvarchar(1), vat_reg_nr nvarchar(30), doc_nr nvarchar(30), article_sum decimal(15,2))
+INSERT INTO @invoices_grouped (pazime, vat_reg_nr, doc_nr, article_sum)
+  SELECT pazime, vat_reg_nr, doc_nr, SUM(article_sum) FROM @invoices GROUP BY vat_reg_nr, pazime, doc_nr
+
+
+  SELECT pazime, vat_reg_nr, CAST(SUM(article_sum) AS decimal(15,2)) AS sum
+  into #t1 FROM @invoices_grouped
+    GROUP BY vat_reg_nr, pazime
+
+--xml out
+SELECT
+(
+  SELECT @aeg1 AS '@date1', @aeg2 AS '@date2', CURRENT_TIMESTAMP AS '@date_now'
+  FOR XML PATH('dates'), TYPE, ELEMENTS
+),
+(
+  SELECT @vat_declar_name AS '@vat_declar_name', @stat_vat AS '@stat_vat', @lim AS '@lim', @account AS '@account', @defVatRegNo as '@defVatRegNo'
+  FOR XML PATH('filters'),TYPE, ELEMENTS
+),
+(
+  SELECT setting AS '@name',
+  (SELECT setting FROM settings WHERE id='firma_kmnr') AS '@vat_reg_nr',
+  (SELECT setting FROM settings WHERE id='firma_regnr') AS '@reg_nr',
+  (SELECT setting FROM settings WHERE id='firma_telefon') AS '@tel',
+  (SELECT setting FROM settings WHERE id='firma_faks') AS '@fax',
+  (SELECT setting FROM settings WHERE id='firma_aadress') AS '@address1',
+  (SELECT setting FROM settings WHERE id='firma_aadress2') AS '@address2',
+  (SELECT setting FROM settings WHERE id='firma_aadress3') AS '@address3',
+  (SELECT setting FROM settings WHERE id='firma_tegevusaadress') AS '@biz_address1',
+  (SELECT setting FROM settings WHERE id='firma_tegevusaadress2') AS '@biz_address2',
+  (SELECT setting FROM settings WHERE id='firma_tegevusaadress3') AS '@biz_address3',
+  (SELECT setting FROM settings WHERE id='firma_pank') AS '@bank',
+  (SELECT setting FROM settings WHERE id='firma_swift') AS '@bank_swift',
+  (SELECT setting FROM settings WHERE id='firma_aa') AS '@account',
+  (SELECT setting FROM settings WHERE id='firma_iban') AS '@iban',
+  (SELECT setting FROM settings WHERE id='firma_juht') AS '@head'
+  FROM settings WHERE id='firma_nimi'
+  FOR XML PATH('company_info'), TYPE, ELEMENTS
+),
+(
+  SELECT row_nr as '@row_nr', row_type as '@row_type', nr as '@nr', description as '@description', doc_sum as '@doc_sum', range_formula as '@range_formula' FROM @vat_declar_sums
+  FOR XML PATH('vat_declar_sum'), TYPE, ELEMENTS
+) AS [vat_declar_totals],
+( --pvn11
+  SELECT dar_veids as '@dar_veids', do_limit as '@do_limit', doc_nr as '@doc_nr', doc_nr as '@client_doc_nr', vat_code as '@vat_code', dok_veids AS '@type', client_name as '@client_name', vat_reg_nr as '@vat_reg_nr', doc_sum AS '@sum', doc_vat AS '@vat', doc_date AS '@date', rn as '@rn', doc_sum as '@doc_sum'
+  FROM @pvn1_1_top_table
+where (doc_sum <> 0 or doc_vat <> 0)
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn11_docs_above],
+
+(
+   SELECT dar_veids '@dar_veids', do_limit as '@do_limit', doc_nr  as '@doc_nr' , doc_nr as '@client_doc_nr', vat_code  as '@vat_code', dok_veids as '@type', client_name  as '@client_name', vat_reg_nr  as '@vat_reg_nr', doc_sum as '@sum', doc_vat as '@vat', doc_date as '@date'
+  FROM @pvn1_1_top_r_table
+where (doc_sum <> 0 or doc_vat <> 0)
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn11_docs_above],
+(
+   SELECT 'V' as '@dar_veids', '' as '@do_limit', '' as '@doc_nr', '' as '@client_doc_nr', '' as '@vat_code', client_name as '@client_name', vat_reg_nr as '@vat_reg_nr', doc_sum AS '@sum', doc_vat AS '@vat', '' as '@doc_date'
+  FROM @pvn_1_1_v_totals2
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn11_docs_above],
+(
+  SELECT CAST(SUM(doc_sum) AS decimal(15,2)) AS '@sum_total', CAST(SUM(doc_vat) AS decimal(15,2)) AS '@vat_total'
+  FROM @pvn_1_1_t_totals FOR XML PATH('pvn11_totals_below'), TYPE, ELEMENTS
+),
+
+(
+  SELECT doc_sum AS '@sum_total',doc_vat AS '@vat_total'
+  FROM  @pvn_1_1_totals
+  FOR XML PATH('pvn11_totals'), TYPE, ELEMENTS
+),
+( --pvn12
+  SELECT dar_veids as '@dar_veids', do_limit  as '@do_limit', doc_nr  as '@doc_nr', client_doc_nr  as '@client_doc_nr', vat_code  as '@vat_code', directo_table  as '@directo_table', doc_type AS '@type', client_name  as '@client_name', vat_reg_nr  as '@vat_reg_nr', country_code  as '@country_code', doc_sum AS '@sum', doc_vat AS '@vat', rate  as '@rate', currency  as '@currency', alt_rate  as '@alt_rate', alt_currency  as '@alt_currency', alt_doc_currency_sum  as '@alt_doc_currency_sum', doc_date AS '@date'
+  FROM @pvn12_main_table
+  where  (doc_sum <> 0)
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn12_docs],
+(
+  SELECT CAST(SUM(doc_sum) AS decimal(15,2)) AS '@sum_total', CAST(SUM(doc_vat) AS decimal(15,2)) AS '@vat_total'
+  FROM @pvn12_main_table
+  FOR XML PATH('pvn12_totals'), TYPE, ELEMENTS
+),
+ ( --pvn13
+    SELECT dar_veids AS '@dar_veids', do_limit AS '@do_limit', dok_veids AS '@dok_veids', iif(@df_invoice_number='',doc_nr,iif(isnull(doc_nr_add,'')='',doc_nr,doc_nr_add)) AS '@doc_nr', vat_code AS '@vat_code', client_name AS '@client_name', vat_reg_nr AS '@vat_reg_nr', doc_sum AS '@sum', doc_vat AS '@vat', doc_date AS '@date', doc_sum_total AS '@doc_sum_total'
+    FROM @pvn1_3_top_table
+    FOR XML PATH('doc'), TYPE, ELEMENTS
+  ) AS [pvn13_docs_above],
+
+  (
+  SELECT dok_veids AS '@dok_veids', client_name AS '@client_name', vat_reg_nr AS '@vat_reg_nr', doc_sum AS '@sum', doc_vat AS '@vat'
+  FROM @v_totals
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn13_docs_above],
+  (
+  SELECT dok_veids AS '@dok_veids', client_name AS '@client_name', vat_reg_nr AS '@vat_reg_nr', doc_sum AS '@sum', doc_vat AS '@vat'
+  FROM @x_totals
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn13_docs_above],
+(
+  SELECT isnull(sum(doc_sum),0) + isnull((select sum(sum_wo_vat) from #fin_kanded_read),0) AS '@sum_total', isnull(sum(doc_vat),0) + isnull((select sum(vat_sum) from #fin_kanded_read),0) AS '@vat_total'
+  FROM @t_totals
+  FOR XML PATH('pvn13_totals_below'), TYPE, ELEMENTS
+),
+(
+  SELECT CAST(SUM(doc_sum) AS decimal(15,2)) AS '@sum_total', CAST(SUM(doc_vat) AS decimal(15,2)) AS '@vat_total'
+  FROM @pvn1_3tots
+  FOR XML PATH('pvn13_totals'), TYPE, ELEMENTS
+), --/pvn13
+( --pvn21
+  SELECT pazime as '@pazime', vat_reg_nr as '@vat_reg_nr', sum as '@sum' from #t1
+  where sum <> 0
+  FOR XML PATH('doc'), TYPE, ELEMENTS
+) AS [pvn21_docs],
+(
+  SELECT CAST(SUM(article_sum) AS decimal(15,2)) AS '@sum_total'
+  FROM @invoices_grouped
+  FOR XML PATH('pvn21_totals'), TYPE, ELEMENTS
+) --/pvn21
+FOR XML PATH('document'), TYPE, ELEMENTS
+
+drop table #t1
+drop table #account_values
+drop table #fin_kanded_read
+
+
+
+GO
