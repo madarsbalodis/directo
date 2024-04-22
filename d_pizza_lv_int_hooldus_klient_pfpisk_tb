@@ -46,7 +46,7 @@ FROM kasutajad_suhe
 insert #pfpisk_DA
 		select a.persoon, b.aeg1, b.aeg2,a.rn,a.rn, '11','','Honorarium'  from per_palgad_read a inner join per_palgad b on a.number=b.number inner join per_palgavalemid c on a.valem=c.kood where cast(b.aeg1 as date) between cast(@aeg1 as date) and cast(@aeg2 as date)  and cast(b.aeg2 as date) between cast(@aeg1 as date) and cast(@aeg2 as date) and c.klass='AA'
 */
-IF @year_rep=0
+/*IF @year_rep=0
 INSERT into #pfpisk_DA SELECT kasutaja, CASE WHEN aeg1<=@begin THEN @begin ELSE aeg1 END as aeg1, aeg2, rn, rv, etapp, lop_alus,kommentaar
 FROM kasutajad_suhe
 WHERE
@@ -56,6 +56,46 @@ INSERT into #pfpisk_DA SELECT kasutaja, CASE WHEN aeg1<=@begin THEN @begin ELSE 
 FROM kasutajad_suhe
 WHERE
 (aeg2 IS NULL or aeg2 > @aeg2) and isnull(charindex('papildu',kommentaar),0)=0 and aeg1 IS NOT NULL
+*/
+
+IF @year_rep = 0
+BEGIN
+  INSERT INTO #pfpisk_da
+  SELECT kasutaja,
+         (SELECT MIN(aeg1) FROM kasutajad_suhe ks2 WHERE ks2.kasutaja = ks1.kasutaja) AS aeg1, -- atrast visagriāko sākuma datumu par katru darbinieku
+         aeg2,
+         rn,
+         rv,
+         etapp,
+         lop_alus,
+         kommentaar
+  FROM   kasutajad_suhe ks1
+  WHERE  lop_alus IS NOT NULL
+         AND lop_alus != ''
+         AND lop_alus != 'PM'
+         AND (aeg2 BETWEEN @aeg1 AND @aeg2)
+         AND Isnull(Charindex('papildu', kommentaar), 0) = 0
+         AND aeg1 IS NOT NULL
+END
+ELSE
+BEGIN
+  INSERT INTO #pfpisk_da
+  SELECT kasutaja,
+         (SELECT MIN(aeg1) FROM kasutajad_suhe ks2 WHERE ks2.kasutaja = ks1.kasutaja) AS aeg1, -- atrast visagriāko sākuma datumu par katru darbinieku
+         @aeg2,
+         rn,
+         rv,
+         etapp,
+         lop_alus,
+         'SALARY'
+  FROM   kasutajad_suhe ks1
+  WHERE  (aeg2 IS NULL OR aeg2 > @aeg2)
+         AND Isnull(Charindex('papildu', kommentaar), 0) = 0
+         AND aeg1 IS NOT NULL
+END
+
+
+
 
 insert #pfpisk_DA
 		select a.persoon, b.aeg1, b.aeg2,a.rn,a.rn, '11','','Honorarium'  from per_palgad_read a inner join per_palgad b on a.number=b.number inner join per_palgavalemid c on a.valem=c.kood where cast(b.aeg1 as date) between cast(@aeg1 as date) and cast(@aeg2 as date)  and cast(b.aeg2 as date) between cast(@aeg1 as date) and cast(@aeg2 as date) and c.klass='AA'
