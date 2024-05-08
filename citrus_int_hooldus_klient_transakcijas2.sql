@@ -120,7 +120,6 @@ SELECT
     z.created AS [Izveidoja],
     z.doc_description AS [Apraksts],
     z.test_date AS [Grāmatojuma datums], 
-    -- z.doc_date AS [Dokumenta datums],
     z.invoice_date AS [Rēķina datums],
     z.created_date AS [Izveidošanas datums],
     z.account AS [Konts],
@@ -130,21 +129,35 @@ SELECT
     z.project AS [projekts],
     z.project_name AS [projekta nosaukums],
     z.OBJECT AS [Objekts],
-    -- Include other necessary fields
-    z.debet AS [Debeta summa],
-    z.credit AS [Kredīta summa],
-    -- z.klass AS [Konta klase],
-   CASE
-        WHEN z.klass = 3 THEN COALESCE(z.credit, 0) - COALESCE(z.debet, 0) -- For income accounts (klass 3), credit minus debit
-        WHEN z.klass = 4 THEN COALESCE(z.debet, 0) - COALESCE(z.credit, 0) -- For expense accounts (klass 4), debit minus credit
-        ELSE 0 -- If it doesn't match klass 3 or 4, default to 0
+    SUM(z.debet) AS [Debeta summa],
+    SUM(z.credit) AS [Kredīta summa],
+    CASE
+        WHEN z.klass = 3 THEN COALESCE(SUM(z.credit), 0) - COALESCE(SUM(z.debet), 0)
+        WHEN z.klass = 4 THEN COALESCE(SUM(z.debet), 0) - COALESCE(SUM(z.credit), 0)
+        ELSE 0
     END AS [Summa]
-
 FROM 
     @transactions z
 WHERE 
-    z.klass IN (3, 4) -- Filter to only include klass 3 (Income) and 4 (Expenses)
+    z.klass IN (3, 4)
+GROUP BY
+    z.document,
+    z.doc_type,
+    z.created,
+    z.doc_description,
+    z.test_date,
+    z.invoice_date,
+    z.created_date,
+    z.account,
+    z.account_name,
+    z.supplier,
+    z.supplier_name,
+    z.project,
+    z.project_name,
+    z.OBJECT,
+    z.klass
 ORDER BY 
-    -- z.doc_date DESC, z.document DESC;
     z.invoice_date DESC, z.document DESC;
+
+
 GO
