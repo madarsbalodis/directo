@@ -1,0 +1,499 @@
+GO
+
+/****** Object:  StoredProcedure [dbo].[int_hooldus_klient_pfpisk_tb]    Script Date: 16/05/2024 09:57:18 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER PROCEDURE [dbo].[int_hooldus_klient_pfpisk_tb] 
+    @aeg1 datetime, 
+    @aeg2 datetime, 
+    @year_rep bit 
+AS
+BEGIN
+    -- Variable declarations
+    DECLARE @person NVARCHAR(50);
+    DECLARE @begin DATE; -- Start of the year
+    DECLARE @start DATE; -- Start date for processing
+    DECLARE @end DATE; -- End date for processing
+    DECLARE @check BIT = 0; -- Flag for creating temp tables
+    DECLARE @row SMALLINT;
+    DECLARE @CalcType NVARCHAR(32);
+    DECLARE @repMonth DECIMAL(15,0);
+    DECLARE @repYear DECIMAL(15,0);
+    DECLARE @latestYear INT;
+    DECLARE @latestVersion NVARCHAR(50);
+
+    -- Create temporary tables
+    CREATE TABLE #pfpisk_bruto (
+        persoon NVARCHAR(32), 
+        bruto_sum DECIMAL(15,4), 
+        tsd NVARCHAR(15)
+    );
+    CREATE TABLE #pfpisk_soc (
+        persoon NVARCHAR(32), 
+        soc_sum DECIMAL(15,4), 
+        tsd NVARCHAR(15)
+    );
+    CREATE TABLE #pfpisk_iin (
+        persoon NVARCHAR(32), 
+        iin_sum DECIMAL(15,4), 
+        tsd NVARCHAR(15)
+    );
+    CREATE TABLE #pfpisk_iin_atv (
+        persoon NVARCHAR(32), 
+        maksuvaba DECIMAL(15,4),
+        maksuvaba_personal DECIMAL(15,4),
+        maksuvaba_related DECIMAL(15,4), 
+        tsd NVARCHAR(15)
+    );
+    CREATE TABLE #pfpisk_taxfree (
+        persoon NVARCHAR(32), 
+        salary_sum DECIMAL(15,4),
+        taxfree_sum DECIMAL(15,4), 
+        tsd NVARCHAR(15)
+    );
+    CREATE TABLE #pfpisk_DA (
+        kasutaja NVARCHAR(32), 
+        aeg1 DATETIME, 
+        aeg2 DATETIME, 
+        rn INT, 
+        rv INT, 
+        etapp NVARCHAR(32), 
+        lop_alus NVARCHAR(32), 
+        CalcType NVARCHAR(32)
+    );
+
+    -- Calculate reporting month and year
+    SELECT 
+        @repMonth = MONTH(@aeg1), 
+        @repYear = YEAR(@aeg1);
+    
+    -- Adjust reporting year based on month
+    SET @repYear = IIF(@repMonth < 4, @repYear, @repYear + 1);
+
+    -- Attempt to find the document for the specific year
+    SET @row = (
+        SELECT rn 
+        FROM int_print 
+        WHERE id = 'int_hooldus_klient_pfpisk' 
+            AND dokument = 'xml_till_04' + CONVERT(NVARCHAR(MAX), @repYear) 
+            AND suletud <> 1
+    );
+
+    -- If no specific document found for the year, use the latest available version
+    IF @row IS NULL
+    BEGIN
+        SELECT TOP 1 
+            @latestYear = RIGHT(dokument, 4), 
+            @latestVersion = LEFT(dokument, LEN(dokument) - 4), 
+            @row = rn
+        FROM int_print
+        WHERE id = 'int_hooldus_klient_pfpisk' 
+            AND suletud <> 1
+        ORDER BY RIGHT(dokument, 4) DESC;
+    END
+
+    -- Set the beginning of the year
+    SET @begin = DATEFROMPARTS(YEAR(@aeg1), 1, 1);
+
+    -- Insert data into #pfpisk_DA based on year report flag
+    IF @year_rep = 0
+    BEGIN
+        INSERT INTO #pfpisk_DA
+        SELECT 
+            kasutaja, 
+            CASE WHEN aeg1 <= @begin THEN @begin ELSE aeg1 END AS aeg1, 
+            aeg2, rn, rv, etapp, lop_alus, kommentaar
+        FROM kasutajad_suhe
+        WHERE
+            lop_alus IS NOT NULL 
+            AND lop_alus != '' 
+            AND lop_alus != 'PM' 
+            AND aeg2 BETWEEN @aeg1 AND @aeg2 
+            AND ISNULL(CHARINDEX('papildu', kommentaar), 0) = 0 
+            AND aeg1 IS NOT NULL;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO #pfpisk_DA
+        SELECT 
+            kasutaja, 
+            CASE WHEN aeg1 <= @begin THEN @begin ELSE aeg1 END AS aeg1, 
+            @aeg2, rn, rv, etapp, lop_alus, 'SALARY'
+        FROM kasutajad_suhe
+        WHERE
+            (aeg2 IS NULL OR aeg2 > @aeg2) 
+            AND ISNULL(CHARINDEX('papildu', kommentaar), 0) = 0 
+            AND aeg1 IS NOT NULL;
+    END
+
+    -- Additional insertion into #pfpisk_DA
+    INSERT INTO #pfpisk_DA
+    SELECT 
+        a.persoon, b.aeg1, b.aeg2, a.rn, a.rn, '11', '', 'Honorarium'
+    FROM per_palgad_read a
+    INNER JOIN per_palgad b ON a.number = b.number
+    INNER JOIN per_palgavalemid c ON a.valem = c.kood
+    WHERE 
+        CAST(b.aeg1 AS DATE) BETWEEN CAST(@aeg1 AS DATE) AND CAST(@aeg2 AS DATE)
+        AND CAST(b.aeg2 AS DATE) BETWEEN CAST(@aeg1 AS DATE) AND CAST(@aeg2 AS DATE)
+        AND c.klass = 'AA';
+
+    -- If there are any employees with DA ending in the reporting period, continue processing
+    IF (SELECT COUNT(kasutaja) FROM #pfpisk_DA) > 0
+    BEGIN
+        -- Update DA start date to the earliest of the related DA rows but not later than the beginning of the year
+        UPDATE da1
+        SET da1.aeg1 = (
+            CASE
+                WHEN da1.aeg1 > (SELECT MIN(da2.aeg1) FROM kasutajad_suhe da2 WHERE da2.kasutaja = da1.kasutaja AND da2.rv = da1.rv) 
+                    AND @begin < (SELECT MIN(da2.aeg1) FROM kasutajad_suhe da2 WHERE da2.kasutaja = da1.kasutaja AND da2.rv = da1.rv) 
+                    THEN (SELECT MIN(da2.aeg1) FROM kasutajad_suhe da2 WHERE da2.kasutaja = da1.kasutaja AND da2.rv = da1.rv)
+                WHEN da1.aeg1 > (SELECT MIN(da2.aeg1) FROM kasutajad_suhe da2 WHERE da2.kasutaja = da1.kasutaja AND da2.rv = da1.rv) 
+                    AND @begin > (SELECT MIN(da2.aeg1) FROM kasutajad_suhe da2 WHERE da2.kasutaja = da1.kasutaja AND da2.rv = da1.rv) 
+                    THEN @begin
+                ELSE aeg1 
+            END
+        )
+        FROM #pfpisk_DA da1 
+        WHERE CalcType = 'Salary';
+
+        -- Create a person info table
+        SELECT 
+            da.kasutaja, kd.nimi, kd.isikukood, da.aeg1, da.aeg2, da.CalcType 
+        INTO #pfpisk_pers
+        FROM #pfpisk_DA da
+        INNER JOIN kasutajad kd ON da.kasutaja = kd.kood;
+
+        -- Process each person by selecting info according to the DA start and end dates
+        DECLARE db_cursor CURSOR FOR 
+        SELECT kasutaja, aeg1, aeg2, CalcType
+        FROM #pfpisk_DA;
+
+        OPEN db_cursor;
+        FETCH NEXT FROM db_cursor INTO @person, @start, @end, @calcType;
+
+        WHILE @@FETCH_STATUS = 0  
+        BEGIN
+            IF @check = 0
+            BEGIN
+                -- Create temp tables with select into for the first cycle
+                IF @CalcType = 'Salary'
+                BEGIN
+                    -- Insert bruto sums from salary calculations
+                    INSERT INTO #pfpisk_bruto
+                    SELECT 
+                        ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS bruto_sum, ISNULL(ppv.tsd, '1001') AS tsd 
+                    FROM per_palgad_read ppr
+                    INNER JOIN per_palgad pp ON ppr.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('ATVILKUMS', 'AVANSS', 'AA')
+                        AND ppr.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert soc sums from tax calculations
+                    INSERT INTO #pfpisk_soc
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS soc_sum, ISNULL(ppv.tsd, '1001') AS tsd  
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND pm.versioon = ppm.versioon
+                        AND pm.klass IN ('SOC_DN')
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert iin sums from tax calculations
+                    INSERT INTO #pfpisk_iin 
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS iin_sum, ISNULL(ppv.tsd, '1001') AS tsd 
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND pm.versioon = ppm.versioon
+                        AND pm.klass IN ('IIN')
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert tax relief sums from tax calculations
+                    INSERT INTO #pfpisk_iin_atv
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.maksuvaba, 0)) AS maksuvaba, 
+                        SUM(ISNULL(ppm.maksuvaba_personal, 0)) AS maksuvaba_personal, 
+                        SUM(ISNULL(ppm.maksuvaba_related, 0)) AS maksuvaba_related, 
+                        ISNULL(ppv.tsd, '1001') AS tsd  
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert tax-free sums from salary formulas
+                    INSERT INTO #pfpisk_taxfree
+                    SELECT 
+                        ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS salary_sum, 
+                        SUM(ISNULL(ppv.maksustatav, 0)) AS taxfree_sum, 
+                        ISNULL(ppv.tsd, '1001') AS tsd 
+                    FROM per_palgad_read ppr
+                    INNER JOIN per_palgad pp ON ppr.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('ATVILKUMS', 'AVANSS', 'AA')
+                        AND ISNULL(ppv.maksustatav, 0) > 0
+                        AND ppr.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+                    SET @check = 1;
+                END
+                ELSE
+                BEGIN
+                    -- Insert bruto sums for non-first cycle
+                    INSERT INTO #pfpisk_bruto 
+                    SELECT 
+                        ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS bruto_sum, ISNULL(ppv.tsd, '1001') AS tsd
+                    FROM per_palgad_read ppr
+                    INNER JOIN per_palgad pp ON ppr.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('ATVILKUMS', 'AVANSS', 'AA')
+                        AND ppr.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert soc sums for non-first cycle
+                    INSERT INTO #pfpisk_soc
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS soc_sum, ISNULL(ppv.tsd, '1001') AS tsd
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND pm.versioon = ppm.versioon
+                        AND pm.klass IN ('SOC_DN')
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert iin sums for non-first cycle
+                    INSERT INTO #pfpisk_iin 
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS iin_sum, ISNULL(ppv.tsd, '1001') AS tsd 
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND pm.versioon = ppm.versioon
+                        AND pm.klass IN ('IIN')
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert tax relief sums for non-first cycle
+                    INSERT INTO #pfpisk_iin_atv
+                    SELECT 
+                        ppm.persoon, SUM(ISNULL(ppm.maksuvaba, 0)) AS maksuvaba, 
+                        SUM(ISNULL(ppm.maksuvaba_personal, 0)) AS maksuvaba_personal, 
+                        SUM(ISNULL(ppm.maksuvaba_related, 0)) AS maksuvaba_related, 
+                        ISNULL(ppv.tsd, '1001') AS tsd 
+                    FROM per_palgad_maksud ppm
+                    INNER JOIN per_palgad pp ON ppm.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('AA')
+                        AND ppm.persoon = @person
+                    GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                    -- Insert tax-free sums for non-first cycle
+                    INSERT INTO #pfpisk_taxfree
+                    SELECT 
+                        ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS salary_sum, 
+                        SUM(ISNULL(ppv.maksustatav, 0)) AS taxfree_sum, 
+                        ISNULL(ppv.tsd, '1001') AS tsd
+                    FROM per_palgad_read ppr
+                    INNER JOIN per_palgad pp ON ppr.number = pp.number
+                    INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                    WHERE 
+                        CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                        AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                        AND ppv.klass NOT IN ('ATVILKUMS', 'AVANSS', 'AA')
+                        AND ISNULL(ppv.maksustatav, 0) > 0
+                        AND ppr.persoon = @person
+                    GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+                END
+            END
+            ELSE IF @CalcType = 'Honorarium'
+            BEGIN
+                -- Insert bruto sums for honorarium
+                INSERT INTO #pfpisk_bruto
+                SELECT 
+                    ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS bruto_sum, ISNULL(ppv.tsd, '1001') AS tsd 
+                FROM per_palgad_read ppr
+                INNER JOIN per_palgad pp ON ppr.number = pp.number
+                INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                WHERE 
+                    CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                    AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                    AND ppv.klass IN ('AA')
+                    AND ppr.persoon = @person
+                GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                -- Insert soc sums for honorarium
+                INSERT INTO #pfpisk_soc
+                SELECT 
+                    ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS soc_sum, ISNULL(ppv.tsd, '1001') AS tsd  
+                FROM per_palgad_maksud ppm
+                INNER JOIN per_palgad pp ON ppm.number = pp.number
+                INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                WHERE 
+                    CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                    AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                    AND pm.versioon = ppm.versioon
+                    AND pm.klass IN ('SOC_DN')
+                    AND ppv.klass IN ('AA')
+                    AND ppm.persoon = @person
+                GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                -- Insert iin sums for honorarium
+                INSERT INTO #pfpisk_iin 
+                SELECT 
+                    ppm.persoon, SUM(ISNULL(ppm.summa, 0)) AS iin_sum, ISNULL(ppv.tsd, '1001') AS tsd 
+                FROM per_palgad_maksud ppm
+                INNER JOIN per_palgad pp ON ppm.number = pp.number
+                INNER JOIN per_maksuvalemid pm ON ppm.maksuvalem = pm.kood
+                INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                WHERE 
+                    CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                    AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                    AND pm.versioon = ppm.versioon
+                    AND pm.klass IN ('IIN')
+                    AND ppv.klass IN ('AA')
+                    AND ppm.persoon = @person
+                GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+
+                -- Insert tax relief sums for honorarium
+                INSERT INTO #pfpisk_iin_atv
+                SELECT 
+                    ppm.persoon, SUM(ISNULL(ppm.maksuvaba, 0)) AS maksuvaba, 
+                    SUM(ISNULL(ppm.maksuvaba_personal, 0)) AS maksuvaba_personal, 
+                    SUM(ISNULL(ppm.maksuvaba_related, 0)) AS maksuvaba_related, 
+                    ISNULL(ppv.tsd, '1001') AS tsd  
+                FROM per_palgad_maksud ppm
+                INNER JOIN per_palgad pp ON ppm.number = pp.number
+                INNER JOIN per_palgavalemid ppv ON ppm.palgavalem = ppv.kood
+                WHERE 
+                    CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                    AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                    AND ppv.klass IN ('AA')
+                    AND ppm.persoon = @person
+                GROUP BY ppm.persoon, ISNULL(ppv.tsd, '1001');
+
+                -- Insert tax-free sums for honorarium
+                INSERT INTO #pfpisk_taxfree
+                SELECT 
+                    ppr.persoon, SUM(ISNULL(ppr.bruto, 0)) AS salary_sum, 
+                    SUM(ISNULL(ppv.maksustatav, 0)) AS taxfree_sum, 
+                    ISNULL(ppv.tsd, '1001') AS tsd 
+                FROM per_palgad_read ppr
+                INNER JOIN per_palgad pp ON ppr.number = pp.number
+                INNER JOIN per_palgavalemid ppv ON ppr.valem = ppv.kood
+                WHERE 
+                    CONVERT(DATE, pp.aeg) BETWEEN @start AND EOMONTH(@end)
+                    AND CONVERT(DATE, pp.aeg2) BETWEEN @start AND EOMONTH(@end)
+                    AND ppv.klass IN ('AA')
+                    AND ISNULL(ppv.maksustatav, 0) > 0
+                    AND ppr.persoon = @person
+                GROUP BY persoon, ISNULL(ppv.tsd, '1001');
+                SET @check = 1;
+            END
+
+            FETCH NEXT FROM db_cursor INTO @person, @start, @end, @calcType;
+        END 
+
+        CLOSE db_cursor;  
+        DEALLOCATE db_cursor;
+
+        -- Generate the XML export link
+        IF @year_rep = 0
+        BEGIN
+            SELECT '<a href="javascript:nop()" onclick="javascript:avaWin(''yld_print.asp?1=1&param0=1&row=' + CONVERT(NVARCHAR, @row, 104) + '&moodul=int_hooldus_klient_pfpisk&print=no&mida=xsl&aeg1=' + CONVERT(NVARCHAR, @aeg1, 104) + '&aeg2=' + CONVERT(NVARCHAR, @aeg2, 104) + '&1=1'')">XML faila eksports</a>';
+        END
+        ELSE
+        BEGIN
+            SELECT '<a href="javascript:nop()" onclick="javascript:avaWin(''yld_print.asp?1=1&param1=1&row=' + CONVERT(NVARCHAR, @row, 104) + '&moodul=int_hooldus_klient_pfpisk&print=no&mida=xsl&aeg1=' + CONVERT(NVARCHAR, @aeg1, 104) + '&aeg2=' + CONVERT(NVARCHAR, @aeg2, 104) + '&1=1'')">XML faila eksports</a>';
+        END
+
+        -- Combine all temp tables into the final result table with links
+        SELECT 
+            (SELECT '<a href="javascript:avaDok(''persoon'',''' + CONVERT(NVARCHAR(32), kood) + ''')">' + CONVERT(NVARCHAR(32), kood) + '</a>' FROM kasutajad WHERE kood = pp.kasutaja) AS kods,
+            (SELECT ' <a href="javascript:nop()" onclick="javascript:avaWin(''per_aru_palgad.asp?t_period=0&aeg1=' + CONVERT(NVARCHAR, pp.aeg1, 104) + '&aeg2=' + CONVERT(NVARCHAR, EOMONTH(pp.aeg2), 104) + '&d_klass2=PERSONAL&persoon=' + pp.kasutaja + '&pv_tyyp=0&d_klass3=palk&read=-1&kasutatud_maksud=-1&sortby=0&vaade=1&xsl_row1=5197&clr1=1&showall=yes'')">' + pp.nimi + '</a>') AS vards,
+            pp.isikukood AS pers_kods, 
+            pp.aeg1 AS periods_no, 
+            pp.aeg2 AS periods_lidz, 
+            pb.tsd AS ien_veids, 
+            pb.bruto_sum, 
+            ps.soc_sum, 
+            pi.iin_sum, 
+            pia.maksuvaba AS atviegl_sum, 
+            pia.maksuvaba_personal AS neapl_min, 
+            pia.maksuvaba_related AS atviegl_apg, 
+            CASE
+                WHEN (pia.maksuvaba - pia.maksuvaba_personal - pia.maksuvaba_related) > 0.03 THEN (pia.maksuvaba - pia.maksuvaba_personal - pia.maksuvaba_related) 
+                ELSE 0.00 
+            END AS atviegl_pap,
+            CASE 
+                WHEN ptf.salary_sum > ptf.taxfree_sum THEN ptf.taxfree_sum
+                WHEN ptf.salary_sum < ptf.taxfree_sum AND ptf.taxfree_sum > 0 THEN ptf.salary_sum 
+            END AS neapl_ien
+        FROM #pfpisk_pers pp 
+        INNER JOIN #pfpisk_bruto pb ON pp.kasutaja = pb.persoon
+        LEFT JOIN #pfpisk_soc ps ON ps.persoon = pb.persoon AND ps.tsd = pb.tsd
+        LEFT JOIN #pfpisk_iin pi ON pi.persoon = pb.persoon AND pi.tsd = pb.tsd
+        LEFT JOIN #pfpisk_iin_atv pia ON pia.persoon = pb.persoon AND pia.tsd = pb.tsd
+        LEFT JOIN #pfpisk_taxfree ptf ON ptf.persoon = pb.persoon AND ptf.tsd = pb.tsd;
+    END
+    ELSE 
+    BEGIN
+        SELECT N'Nav rezultātu šim periodam'; -- No results for this period
+    END
+
+    -- Drop temporary tables
+    DROP TABLE IF EXISTS #pfpisk_bruto;
+    DROP TABLE IF EXISTS #pfpisk_soc;
+    DROP TABLE IF EXISTS #pfpisk_iin;
+    DROP TABLE IF EXISTS #pfpisk_iin_atv;
+    DROP TABLE IF EXISTS #pfpisk_taxfree;
+    DROP TABLE IF EXISTS #pfpisk_DA;
+    DROP TABLE IF EXISTS #pfpisk_pers;
+END;
+GO
