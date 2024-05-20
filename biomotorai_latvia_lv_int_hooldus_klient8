@@ -2,336 +2,453 @@ SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER PROCEDURE [dbo].[Int_hooldus_klient8] @aeg1 DATETIME,
-                                                                               @aeg2 DATETIME,
-                                                                               @supplier NVARCHAR(32)=NULL,
-                                                                               @project NVARCHAR(32)=NULL,
-                                                                               @vaztarastis NVARCHAR(255)=NULL,
-                                                                               @inventorius NVARCHAR(255)=NULL,
-                                                                               @pastaba NVARCHAR(255)=NULL,
-                                                                               @preke NVARCHAR(32)=NULL,
-                                                                               @tvarus NVARCHAR(32)=NULL,
-                                                                               @geo_kodas NVARCHAR(32)=NULL,
-                                                                               @veiksmas NVARCHAR(32)=NULL,
-                                                                               @im_kodas NVARCHAR(32)=NULL,
-                                                                               @supp_class NVARCHAR(32)=NULL,
-                                                                               @gpais NVARCHAR(32)=NULL,
-                                                                               @usr NVARCHAR(32)=NULL,
-																			   @caeg1 datetime=null,
-																			   @caeg2 datetime=null
+
+ALTER PROCEDURE [dbo].[Int_hooldus_klient8] 
+    @aeg1 DATETIME,
+    @aeg2 DATETIME,
+    @supplier NVARCHAR(32)=NULL,
+    @project NVARCHAR(32)=NULL,
+    @vaztarastis NVARCHAR(255)=NULL,
+    @inventorius NVARCHAR(255)=NULL,
+    @pastaba NVARCHAR(255)=NULL,
+    @preke NVARCHAR(32)=NULL,
+    @tvarus NVARCHAR(32)=NULL,
+    @geo_kodas NVARCHAR(32)=NULL,
+    @veiksmas NVARCHAR(32)=NULL,
+    @im_kodas NVARCHAR(32)=NULL,
+    @supp_class NVARCHAR(32)=NULL,
+    @gpais NVARCHAR(32)=NULL,
+    @usr NVARCHAR(32)=NULL,
+    @caeg1 DATETIME=NULL,
+    @caeg2 DATETIME=NULL,
+    @show NVARCHAR(32)=NULL,
+    @supp_type NVARCHAR(32)=NULL,
+    @supp_group NVARCHAR(32)=NULL
 AS
-IF (@supplier='INSTALL' OR @supplier='REINSTALL')
 BEGIN
+    IF (@supplier='INSTALL' OR @supplier='REINSTALL')
+    BEGIN
+        IF (@supplier='REINSTALL')
+        BEGIN
+            DELETE int_hooldus_klient WHERE rn = '8'
+            DELETE int_hooldus_klient_params WHERE aru_id = '8'
+        END
 
-       IF (@supplier='REINSTALL')
-       BEGIN
-              DELETE int_hooldus_klient WHERE rn = '8'
-              DELETE int_hooldus_klient_params WHERE aru_id = '8'
-       END
-       IF NOT EXISTS(SELECT 1 FROM int_hooldus_klient WITH(nolock) WHERE rn = '8')
-       BEGIN
-              INSERT INTO int_hooldus_klient (rn, nimi, formaat, aru_tyyp, filename, param1) 
-              SELECT '8', 'Resursu pārskats - produktu pieņemšana', 'table', '', '', '' 
-       END
-       IF NOT EXISTS(SELECT 1 FROM int_hooldus_klient_params WITH(nolock) WHERE aru_id = '8')
-       BEGIN
-              INSERT INTO int_hooldus_klient_params (aru_id,nimi,tyyp,order_no) 
-              SELECT '8',N'Supplier','put_hankija','10' 
-              UNION 
-              SELECT '8',N'Project','put_projekt','20' 
-              UNION 
-              SELECT '8',N'Delivery','2','30' 
-              UNION 
-              SELECT '8',N'Inventory no.','2','40' 
-              UNION 
-              SELECT '8',N' ','0','45' 
-              UNION 
-              SELECT '8',N'Note','2','50' 
-              UNION 
-              SELECT '8',N'Item / Oil','put_artikkel','60' 
-              UNION 
-              SELECT '8',N'Self declaration',',tvarus,netvarus','70' 
-              UNION 
-              SELECT '8',N'Geo. code','2','80'
-              UNION 
-              SELECT '8',N' ','0','85'  
-              UNION 
-              SELECT '8',N'<b>ACTION</b>',N',Review,Creating stock receipts','90'
-              UNION 
-              SELECT '8',N'Company code',N'2','100'
-              UNION 
-              SELECT '8',N'Supplier class',N'put_h_klass','110'
-              UNION 
-              SELECT '8',N'GPAIS',N',Taip,Ne','120'
-              UNION 
-              SELECT '8',N'Driver',N'put_kasutaja','130'
-			  UNION 
-              SELECT '8',N' ','0','135' 
-			  UNION 
-              SELECT '8',N'Contract date','periood','140'
-       END 
-       return
-END
-SET LANGUAGE British;
-SET @aeg2 = Dateadd(ss, 86399, @aeg2)
-SET @caeg2 = Dateadd(ss, 86399, @caeg2)
-IF (@veiksmas IS NOT NULL OR @veiksmas != '')
-BEGIN
-IF (@veiksmas = N'Review')
-BEGIN
-       SELECT CONVERT(NVARCHAR(32),SUM(isnull(kogus,0))) as 'Total quantity L: ',
-	   
-                      CONVERT(NVARCHAR(32),round(SUM(isnull(R.kogus,0) * ISNULL(A.kaal,1) ),3)) as 'Total quantity KG: ',
-					  
-                     CONVERT(NVARCHAR(32),SUM(isnull(kogus_tehtud,0))) as 'Total done L: ',
-					 
-                      CONVERT(NVARCHAR(32),round(SUM(isnull(R.kogus_tehtud,0) * ISNULL(A.kaal,1) ),3)) as 'Total done KG: '
-       FROM ressursid_read R WITH(nolock)
-       INNER JOIN ressursid HH WITH(nolock) ON HH.number = R.number
-	   JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
-       JOIN hankijad H ON R.hankija = H.kood
-						and ((@caeg1 is null or @caeg2 is null) or exists(select * from yld_data with(nolock) where klass = 'hankija' and kood = 'SUTARTIES_DATA_TK' and kaart = H.kood and isdate(sisu) = 1 and try_parse(sisu as datetime) between @caeg1 and @caeg2))
-       WHERE R.aeg >= @aeg1
-       AND R.aeg <= @aeg2
-       AND (isnull(HH.kasutaja,'') = @usr OR @usr IS NULL)
-       AND (isnull(R.hankija,'') = @supplier OR @supplier IS NULL)
-       AND (isnull(R.projekt,'') = @project OR @project IS NULL)
-       AND (isnull(R.tekst1,'') = @vaztarastis OR @vaztarastis IS NULL)
-       AND (isnull(R.tekst2,'') = @inventorius OR @inventorius IS NULL)
-       AND (isnull(R.kommentaar,'') = @pastaba OR @pastaba IS NULL)
-       AND (isnull(H.klass,'') = @supp_class OR @supp_class IS NULL)
-       AND (@preke LIKE '%,' + isnull(R.artikkel,'') + ',%' OR @preke IS NULL)
-       AND (isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = R.hankija),'') = @tvarus OR isnull(@tvarus,'') = '')
-       AND (@geo_kodas LIKE '%,' + isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = R.projekt),'') + ',%' OR isnull(@geo_kodas,'') = '')
-       AND ((SELECT ISNULL(regnr1,'') FROM hankijad WHERE hankijad.kood = R.hankija) = @im_kodas OR @im_kodas IS NULL)
-       AND ISNULL(R.suletud,0) = CASE
-                                                                               WHEN @gpais = 'Taip'
-                                                                                       THEN 1
-                                                                               WHEN @gpais = 'Ne'
-                                                                                       THEN 0
-                                                                               ELSE 
-                                                                                       ISNULL(R.suletud,0)
-                                                                               END
-       
+        IF NOT EXISTS(SELECT 1 FROM int_hooldus_klient WITH(nolock) WHERE rn = '8')
+        BEGIN
+            INSERT INTO int_hooldus_klient (rn, nimi, formaat, aru_tyyp, filename, param1) 
+            SELECT '8', 'Resursu pārskats - produktu pieņemšana', 'table', '', '', '' 
+        END
+        IF NOT EXISTS(SELECT 1 FROM int_hooldus_klient_params WITH(nolock) WHERE aru_id = '8')
+        BEGIN
+            INSERT INTO int_hooldus_klient_params (aru_id, nimi, tyyp, order_no) 
+            SELECT '8', N'Supplier', 'put_hankija', '10' 
+            UNION 
+            SELECT '8', N'Project', 'put_projekt', '20' 
+            UNION 
+            SELECT '8', N'Delivery', '2', '30' 
+            UNION 
+            SELECT '8', N'Inventory no.', '2', '40' 
+            UNION 
+            SELECT '8', N' ', '0', '45' 
+            UNION 
+            SELECT '8', N'Note', '2', '50' 
+            UNION 
+            SELECT '8', N'Item / Oil', 'put_artikkel', '60' 
+            UNION 
+            SELECT '8', N'Self declaration', ',tvarus,netvarus', '70' 
+            UNION 
+            SELECT '8', N'Geo. code', '2', '80'
+            UNION 
+            SELECT '8', N' ', '0', '85'  
+            UNION 
+            SELECT '8', N'<b>ACTION</b>', N',Review,Creating stock receipts', '90'
+            UNION 
+            SELECT '8', N'Company code', '2', '100'
+            UNION 
+            SELECT '8', N'Supplier class', 'put_h_klass', '110'
+            UNION 
+            SELECT '8', N'GPAIS', ',Taip,Ne', '120'
+            UNION 
+            SELECT '8', N'Driver', 'put_kasutaja', '130'
+            UNION 
+            SELECT '8', N' ', '0', '135' 
+            UNION 
+            SELECT '8', N'Contract date', 'periood', '140'
+        END 
+        RETURN
+    END
 
-       
-       SELECT '<a target="_blank" href="mr_ressurs.asp?NUMBER=' + CONVERT(NVARCHAR(32),R.number) + '">' + CONVERT(NVARCHAR(32),R.number) + '</a>' as 'Number',
-              CONVERT(DATE,R.aeg,104) as 'Date',
-              isnull(R.hankija,'') as 'Supplier code',
-              isnull((SELECT klass FROM hankijad WHERE hankijad.kood = R.hankija),'') as N'Supplier class',
-              (SELECT ISNULL(regnr1,'') FROM hankijad WHERE hankijad.kood = R.hankija) as N'Company code',
-              isnull(R.hankija_nimi,'') as N'Supplier name',
-              isnull(R.projekt,'') as 'Project code',
-              isnull((SELECT nimi from projektid WITH(nolock) WHERE projektid.kood = R.projekt),'') as N'Project name',
-              isnull(R.kogus,0) as 'Quantity  L',
-              round(isnull(R.kogus,0) * ISNULL(A.kaal,1),3) as 'Quantity KG',
-              isnull(R.kogus_tehtud, 0) as N'Done L',
-              round(isnull(R.kogus_tehtud,0) * ISNULL(A.kaal,1),3) as N'Done KG',
-              isnull(R.tekst1,'') as N'Consignment no.',
-              isnull(R.tekst2,'') as N'Inventory no.',
-              isnull(R.kommentaar,'') as N'Note',
-              (SELECT Y.sisu FROM yld_data Y WITH(nolock) WHERE Y.klass = 'HANKIJA' AND Y.kood = 'VADYBININKAS' AND Y.kaart = R.hankija) as 'Manager',
-              artikkel as N'Product',
-              (SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = R.projekt) as 'Geo. code',
-              (SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'KILM_KODAS_T' AND klass = 'HANKIJA' AND kaart = R.hankija) as 'Origin code',
-              (SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SLF_DCL_DT_TK' AND klass = 'HANKIJA' AND kaart = R.hankija) as 'Self declaration',
+    SET LANGUAGE British;
+    SET @aeg2 = DATEADD(ss, 86399, @aeg2)
+    SET @caeg2 = DATEADD(ss, 86399, @caeg2)
+    
+    IF (@veiksmas IS NOT NULL AND @veiksmas != '')
+    BEGIN
+        IF (@veiksmas = N'Review')
+        BEGIN
+            SELECT 
+                CONVERT(NVARCHAR(32), SUM(ISNULL(kogus, 0))) AS 'Total quantity L: ',
+                CONVERT(NVARCHAR(32), ROUND(SUM(ISNULL(R.kogus, 0) * ISNULL(A.kaal, 1)), 3)) AS 'Total quantity KG: ',
+                CONVERT(NVARCHAR(32), SUM(ISNULL(kogus_tehtud, 0))) AS 'Total done L: ',
+                CONVERT(NVARCHAR(32), ROUND(SUM(ISNULL(R.kogus_tehtud, 0) * ISNULL(A.kaal, 1)), 3)) AS 'Total done KG: '
+            FROM ressursid_read R WITH(nolock)
+            INNER JOIN ressursid HH WITH(nolock) ON HH.number = R.number
+            JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
+            JOIN hankijad H ON R.hankija = H.kood
+                AND ((@caeg1 IS NULL OR @caeg2 IS NULL) 
+                OR EXISTS (SELECT * FROM yld_data WITH(nolock) 
+                           WHERE klass = 'hankija' 
+                           AND kood = 'SUTARTIES_DATA_TK' 
+                           AND kaart = H.kood 
+                           AND ISDATE(sisu) = 1 
+                           AND TRY_PARSE(sisu AS datetime) BETWEEN @caeg1 AND @caeg2))
+            WHERE R.aeg >= @aeg1
+            AND R.aeg <= @aeg2
+            AND (ISNULL(HH.kasutaja, '') = @usr OR @usr IS NULL)
+            AND (ISNULL(R.hankija, '') = @supplier OR @supplier IS NULL)
+            AND (ISNULL(R.projekt, '') = @project OR @project IS NULL)
+            AND (ISNULL(R.tekst1, '') = @vaztarastis OR @vaztarastis IS NULL)
+            AND (ISNULL(R.tekst2, '') = @inventorius OR @inventorius IS NULL)
+            AND (ISNULL(R.kommentaar, '') = @pastaba OR @pastaba IS NULL)
+            AND (ISNULL(H.klass, '') = @supp_class OR @supp_class IS NULL)
+            AND (@preke LIKE '%,' + ISNULL(R.artikkel, '') + ',%' OR @preke IS NULL)
+            AND (ISNULL((SELECT TOP 1 sisu 
+                        FROM yld_data WITH(nolock) 
+                        WHERE kood = 'SELF_DECLARATION' 
+                        AND klass = 'HANKIJA' 
+                        AND kaart = R.hankija), '') = @tvarus 
+            OR ISNULL(@tvarus, '') = '')
+            AND (@geo_kodas LIKE '%,' + ISNULL((SELECT TOP 1 sisu 
+                                                FROM yld_data WITH(nolock) 
+                                                WHERE kood = 'GEO_KODAS' 
+                                                AND klass = 'PROJEKT' 
+                                                AND kaart = R.projekt), '') + ',%' 
+            OR ISNULL(@geo_kodas, '') = '')
+            AND ((SELECT ISNULL(regnr1, '') 
+                  FROM hankijad 
+                  WHERE hankijad.kood = R.hankija) = @im_kodas 
+            OR @im_kodas IS NULL)
+            AND ISNULL(R.suletud, 0) = CASE
+                                           WHEN @gpais = 'Taip' THEN 1
+                                           WHEN @gpais = 'Ne' THEN 0
+                                           ELSE ISNULL(R.suletud, 0)
+                                       END
+            AND (@supp_group IS NULL 
+            OR @supp_group = (SELECT TOP 1 sisu 
+                              FROM yld_data WITH(nolock) 
+                              WHERE kood = 'SUPP_GROUP' 
+                              AND klass = 'HANKIJA' 
+                              AND kaart = R.hankija))
 
-              -- select * from yld_data where kaart = '2283'
-
-              /*
-              (SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = R.hankija) as 'Self declaration',
-              */
-
-              -- SELECT kaart from yld_data where kood = 'SELF_DECLARATION' and klass = 'HANKIJA'
-
-              isnull(R.hankija_kontakt,'') as N'Goods reception no.',
-              (SELECT memo FROM projektid WHERE projektid.kood = R.projekt) as 'Address',
-              (SELECT TOP 1 param FROM yld_data WHERE kaart = R.hankija AND sisu = R.artikkel AND klass = 'HANKIJA' AND kood = 'SUBSIDIJA_TK') as 'Subsidy',
-              CASE ISNULL(R.suletud,0)
-                      WHEN 0
-                             THEN 'Ne'
-                      ELSE 'Taip'
-              END    'GPAIS',
-              HH.kasutaja 'Driver'
-              -- added a restaurant group
-              ,(SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = '1000' AND klass = 'HANKIJA' AND kaart = R.hankija) N'Restaurant group'
-       FROM ressursid_read R WITH(nolock) 
-       INNER JOIN ressursid HH WITH(nolock) ON R.number = HH.number
-	   JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
-       JOIN hankijad H ON R.hankija = H.kood
-						and ((@caeg1 is null or @caeg2 is null) or exists(select * from yld_data with(nolock) where klass = 'hankija' and kood = 'SUTARTIES_DATA_TK' and kaart = H.kood and isdate(sisu) = 1 and try_parse(sisu as datetime) between @caeg1 and @caeg2))
-       WHERE R.aeg >= @aeg1
-       AND R.aeg <= @aeg2
-       AND (isnull(HH.kasutaja,'') = @usr OR @usr IS NULL)
-       AND (isnull(R.hankija,'') = @supplier OR @supplier IS NULL)
-       AND (isnull(R.projekt,'') = @project OR @project IS NULL)
-       AND (isnull(R.tekst1,'') = @vaztarastis OR @vaztarastis IS NULL)
-       AND (isnull(R.tekst2,'') = @inventorius OR @inventorius IS NULL)
-       AND (isnull(R.kommentaar,'') = @pastaba OR @pastaba IS NULL)
-       AND (isnull(H.klass,'') = @supp_class OR @supp_class IS NULL)
-       AND (@preke LIKE '%,' + isnull(R.artikkel,'') + ',%' OR @preke IS NULL)
-       AND (isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = R.hankija),'') = @tvarus OR isnull(@tvarus,'') = '')
-       AND (@geo_kodas LIKE '%,' + isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = R.projekt),'') + ',%' OR isnull(@geo_kodas,'') = '')
-       AND ((SELECT ISNULL(regnr1,'') FROM hankijad WHERE hankijad.kood = R.hankija) = @im_kodas OR @im_kodas IS NULL)
-       AND ISNULL(R.suletud,0) = CASE
-                                                                               WHEN @gpais = 'Taip'
-                                                                                       THEN 1
-                                                                               WHEN @gpais = 'Ne'
-                                                                                       THEN 0
-                                                                               ELSE 
-                                                                                       ISNULL(R.suletud,0)
-                                                                               END
-       
-
-       
-       
-END
-ELSE IF (@veiksmas = N'Creating stock receipts')
-BEGIN
-       SELECT N'------------- Creating stock receipts begins --------------- ' + CONVERT(NVARCHAR(32),getdate(), 114)
-       
-       DECLARE tiekejai CURSOR FOR
-       SELECT distinct(R.hankija)
-       FROM ressursid_read R WITH(nolock)
-       INNER JOIN ressursid HH WITH(nolock) ON R.number = HH.number
-       JOIN hankijad H ON R.hankija = H.kood
-						and ((@caeg1 is null or @caeg2 is null) or exists(select * from yld_data with(nolock) where klass = 'hankija' and kood = 'SUTARTIES_DATA_TK' and kaart = H.kood and isdate(sisu) = 1 and try_parse(sisu as datetime) between @caeg1 and @caeg2))
-       WHERE R.aeg >= @aeg1
-       AND R.aeg <= @aeg2
-       AND (isnull(HH.kasutaja,'') = @usr OR @usr IS NULL)
-       AND (isnull(R.hankija,'') = @supplier OR @supplier IS NULL)
-       AND (isnull(R.projekt,'') = @project OR @project IS NULL)
-       AND (isnull(R.tekst1,'') = @vaztarastis OR @vaztarastis IS NULL)
-       AND (isnull(R.tekst2,'') = @inventorius OR @inventorius IS NULL)
-       AND (isnull(R.kommentaar,'') = @pastaba OR @pastaba IS NULL)
-       AND (isnull(H.klass,'') = @supp_class OR @supp_class IS NULL)
-       AND (@preke LIKE '%,' + isnull(R.artikkel,'') + ',%' OR @preke IS NULL)
-       AND (isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = R.hankija),'') = @tvarus OR isnull(@tvarus,'') = '')
-       AND (@geo_kodas LIKE '%,' + isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = R.projekt),'') + ',%' OR isnull(@geo_kodas,'') = '')
-       AND isnull(R.hankija_kontakt,'') = ''
-       AND ((SELECT ISNULL(regnr1,'') FROM hankijad WHERE hankijad.kood = R.hankija) = @im_kodas OR @im_kodas IS NULL)
-       AND ISNULL(R.suletud,0) = CASE
-                                                                               WHEN @gpais = 'Taip'
-                                                                                       THEN 1
-                                                                               WHEN @gpais = 'Ne'
-                                                                                       THEN 0
-                                                                               ELSE 
-                                                                                       ISNULL(R.suletud,0)
-                                                                               END
-       
-       DECLARE @naujas_nr INT, @tiekejas NVARCHAR(32)
-       OPEN tiekejai
-       FETCH next FROM tiekejai INTO @tiekejas
-       WHILE @@FETCH_STATUS = 0
-       BEGIN
-              SET @naujas_nr = isnull((SELECT max(number)+1 FROM ladu_sissetulekud), 2000001)
-              -- STOCK RECEIPT CREATION
-              INSERT INTO ladu_sissetulekud (number, aeg, hankija_kood, hankija_nimi, ladu, valuuta, kurssBV1, hindKMga, kinnitatud, konto, cu, ts, tingimus, kasutaja)
-              SELECT @naujas_nr,
-              @aeg1,
-              @tiekejas,
-              (SELECT nimi FROM hankijad WHERE kood = @tiekejas),
-              'PAGRINDINIS',
-              'EUR',
-              1,
-              0,
-              0,
-              '9991',
-              'AUTO_PROCEDURE',
-              getdate(),
-              '0',
-              'ROBERTAS'
-              
-              INSERT INTO ladu_sissetulekud_read (number, artikkel, kogus, sisu, r_projekt, yhikuhind, soetushind, summa)
-              SELECT @naujas_nr,
+            SELECT 
+                '<a target="_blank" href="mr_ressurs.asp?NUMBER=' + CONVERT(NVARCHAR(32), R.number) + '">' + CONVERT(NVARCHAR(32), R.number) + '</a>' AS 'Number',
+                CONVERT(DATE, R.aeg, 104) AS 'Date',
+                ISNULL(R.hankija, '') AS 'Supplier code',
+                ISNULL((SELECT klass 
+                        FROM hankijad 
+                        WHERE hankijad.kood = R.hankija), '') AS N'Supplier class',
+                (SELECT ISNULL(regnr1, '') 
+                 FROM hankijad 
+                 WHERE hankijad.kood = R.hankija) AS N'Company code',
+                ISNULL(R.hankija_nimi, '') AS N'Supplier name',
+                ISNULL(R.projekt, '') AS 'Project code',
+                ISNULL((SELECT nimi 
+                        FROM projektid WITH(nolock) 
+                        WHERE projektid.kood = R.projekt), '') AS N'Project name',
+                ISNULL(R.kogus, 0) AS 'Quantity  L',
+                ROUND(ISNULL(R.kogus, 0) * ISNULL(A.kaal, 1), 3) AS 'Quantity KG',
+                ISNULL(R.kogus_tehtud, 0) AS N'Done L',
+                ROUND(ISNULL(R.kogus_tehtud, 0) * ISNULL(A.kaal, 1), 3) AS N'Done KG',
+                ISNULL(R.tekst1, '') AS N'Consignment no.',
+                ISNULL(R.tekst2, '') AS N'Inventory no.',
+                ISNULL(R.kommentaar, '') AS N'Note',
+                (SELECT Y.sisu 
+                 FROM yld_data Y WITH(nolock) 
+                 WHERE Y.klass = 'HANKIJA' 
+                 AND Y.kood = 'VADYBININKAS' 
+                 AND Y.kaart = R.hankija) AS 'Manager',
+                artikkel AS N'Product',
+                (SELECT TOP 1 sisu 
+                 FROM yld_data WITH(nolock) 
+                 WHERE kood = 'GEO_KODAS' 
+                 AND klass = 'PROJEKT' 
+                 AND kaart = R.projekt) AS 'Geo. code',
+                (SELECT TOP 1 sisu 
+                 FROM yld_data WITH(nolock) 
+                 WHERE kood = 'KILM_KODAS_T' 
+                 AND klass = 'HANKIJA' 
+                 AND kaart = R.hankija) AS 'Origin code',
+                (SELECT TOP 1 sisu 
+                 FROM yld_data WITH(nolock) 
+                 WHERE kood = 'SLF_DCL_DT_TK' 
+                 AND klass = 'HANKIJA' 
+                 AND kaart = R.hankija) AS 'Self declaration',
+                ISNULL(R.hankija_kontakt, '') AS N'Goods reception no.',
+                (SELECT memo 
+                 FROM projektid 
+                 WHERE projektid.kood = R.projekt) AS 'Address',
+                (SELECT TOP 1 param 
+                 FROM yld_data 
+                 WHERE kaart = R.hankija 
+                 AND sisu = R.artikkel 
+                 AND klass = 'HANKIJA' 
+                 AND kood = 'SUBSIDIJA_TK') AS 'Subsidy',
+                CASE ISNULL(R.suletud, 0)
+                   WHEN 0 THEN 'Ne'
+                   ELSE 'Taip'
+                END AS 'GPAIS',
+                HH.kasutaja AS 'Driver',
+                (SELECT TOP 1 sisu 
+                 FROM yld_data WITH(nolock) 
+                 WHERE kood = '1000' 
+                 AND klass = 'HANKIJA' 
+                 AND kaart = R.hankija) AS N'Restaurant group'
+            FROM ressursid_read R WITH(nolock) 
+            INNER JOIN ressursid HH WITH(nolock) ON R.number = HH.number
+            JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
+            JOIN hankijad H ON R.hankija = H.kood
+                AND ((@caeg1 IS NULL OR @caeg2 IS NULL) 
+                OR EXISTS (SELECT * FROM yld_data WITH(nolock) 
+                           WHERE klass = 'hankija' 
+                           AND kood = 'SUTARTIES_DATA_TK' 
+                           AND kaart = H.kood 
+                           AND ISDATE(sisu) = 1 
+                           AND TRY_PARSE(sisu AS datetime) BETWEEN @caeg1 AND @caeg2))
+            WHERE R.aeg >= @aeg1
+            AND R.aeg <= @aeg2
+            AND (ISNULL(HH.kasutaja, '') = @usr OR @usr IS NULL)
+            AND (ISNULL(R.hankija, '') = @supplier OR @supplier IS NULL)
+            AND (ISNULL(R.projekt, '') = @project OR @project IS NULL)
+            AND (ISNULL(R.tekst1, '') = @vaztarastis OR @vaztarastis IS NULL)
+            AND (ISNULL(R.tekst2, '') = @inventorius OR @inventorius IS NULL)
+            AND (ISNULL(R.kommentaar, '') = @pastaba OR @pastaba IS NULL)
+            AND (ISNULL(H.klass, '') = @supp_class OR @supp_class IS NULL)
+            AND (@preke LIKE '%,' + ISNULL(R.artikkel, '') + ',%' OR @preke IS NULL)
+            AND (ISNULL((SELECT TOP 1 sisu 
+                        FROM yld_data WITH(nolock) 
+                        WHERE kood = 'SELF_DECLARATION' 
+                        AND klass = 'HANKIJA' 
+                        AND kaart = R.hankija), '') = @tvarus 
+            OR ISNULL(@tvarus, '') = '')
+            AND (@geo_kodas LIKE '%,' + ISNULL((SELECT TOP 1 sisu 
+                                                FROM yld_data WITH(nolock) 
+                                                WHERE kood = 'GEO_KODAS' 
+                                                AND klass = 'PROJEKT' 
+                                                AND kaart = R.projekt), '') + ',%' 
+            OR ISNULL(@geo_kodas, '') = '')
+            AND ((SELECT ISNULL(regnr1, '') 
+                  FROM hankijad 
+                  WHERE hankijad.kood = R.hankija) = @im_kodas 
+            OR @im_kodas IS NULL)
+            AND ISNULL(R.suletud, 0) = CASE
+                                           WHEN @gpais = 'Taip' THEN 1
+                                           WHEN @gpais = 'Ne' THEN 0
+                                           ELSE ISNULL(R.suletud, 0)
+                                       END
+            AND (@supp_group IS NULL 
+            OR @supp_group = (SELECT TOP 1 sisu 
+                              FROM yld_data WITH(nolock) 
+                              WHERE kood = 'SUPP_GROUP' 
+                              AND klass = 'HANKIJA' 
+                              AND kaart = R.hankija))
+        END
+        ELSE IF (@veiksmas = N'Creating stock receipts')
+        BEGIN
+            SELECT N'------------- Creating stock receipts begins --------------- ' + CONVERT(NVARCHAR(32), GETDATE(), 114)
+            
+            DECLARE tiekejai CURSOR FOR
+            SELECT DISTINCT(R.hankija)
+            FROM ressursid_read R WITH(nolock)
+            INNER JOIN ressursid HH WITH(nolock) ON R.number = HH.number
+            JOIN hankijad H ON R.hankija = H.kood
+                            AND ((@caeg1 IS NULL OR @caeg2 IS NULL) 
+                            OR EXISTS (SELECT * FROM yld_data WITH(nolock) 
+                                       WHERE klass = 'hankija' 
+                                       AND kood = 'SUTARTIES_DATA_TK' 
+                                       AND kaart = H.kood 
+                                       AND ISDATE(sisu) = 1 
+                                       AND TRY_PARSE(sisu AS datetime) BETWEEN @caeg1 AND @caeg2))
+            WHERE R.aeg >= @aeg1
+            AND R.aeg <= @aeg2
+            AND (ISNULL(HH.kasutaja, '') = @usr OR @usr IS NULL)
+            AND (ISNULL(R.hankija, '') = @supplier OR @supplier IS NULL)
+            AND (ISNULL(R.projekt, '') = @project OR @project IS NULL)
+            AND (ISNULL(R.tekst1, '') = @vaztarastis OR @vaztarastis IS NULL)
+            AND (ISNULL(R.tekst2, '') = @inventorius OR @inventorius IS NULL)
+            AND (ISNULL(R.kommentaar, '') = @pastaba OR @pastaba IS NULL)
+            AND (ISNULL(H.klass, '') = @supp_class OR @supp_class IS NULL)
+            AND (@preke LIKE '%,' + ISNULL(R.artikkel, '') + ',%' OR @preke IS NULL)
+            AND (ISNULL((SELECT TOP 1 sisu 
+                        FROM yld_data WITH(nolock) 
+                        WHERE kood = 'SELF_DECLARATION' 
+                        AND klass = 'HANKIJA' 
+                        AND kaart = R.hankija), '') = @tvarus 
+            OR ISNULL(@tvarus, '') = '')
+            AND (@geo_kodas LIKE '%,' + ISNULL((SELECT TOP 1 sisu 
+                                                FROM yld_data WITH(nolock) 
+                                                WHERE kood = 'GEO_KODAS' 
+                                                AND klass = 'PROJEKT' 
+                                                AND kaart = R.projekt), '') + ',%' 
+            OR ISNULL(@geo_kodas, '') = '')
+            AND ISNULL(R.hankija_kontakt, '') = ''
+            AND ((SELECT ISNULL(regnr1, '') 
+                  FROM hankijad 
+                  WHERE hankijad.kood = R.hankija) = @im_kodas 
+            OR @im_kodas IS NULL)
+            AND ISNULL(R.suletud, 0) = CASE
+                                           WHEN @gpais = 'Taip' THEN 1
+                                           WHEN @gpais = 'Ne' THEN 0
+                                           ELSE ISNULL(R.suletud, 0)
+                                       END
+            
+            DECLARE @naujas_nr INT, @tiekejas NVARCHAR(32)
+            OPEN tiekejai
+            FETCH NEXT FROM tiekejai INTO @tiekejas
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+                SET @naujas_nr = ISNULL((SELECT MAX(number)+1 FROM ladu_sissetulekud), 2000001)
+                -- STOCK RECEIPT CREATION
+                INSERT INTO ladu_sissetulekud (number, aeg, hankija_kood, hankija_nimi, ladu, valuuta, kurssBV1, hindKMga, kinnitatud, konto, cu, ts, tingimus, kasutaja)
+                SELECT @naujas_nr,
+                @aeg1,
+                @tiekejas,
+                (SELECT nimi FROM hankijad WHERE kood = @tiekejas),
+                'PAGRINDINIS',
+                'EUR',
+                1,
+                0,
+                0,
+                '9991',
+                'AUTO_PROCEDURE',
+                GETDATE(),
+                '0',
+                'ROBERTAS'
+                
+                INSERT INTO ladu_sissetulekud_read (number, artikkel, kogus, sisu, r_projekt, yhikuhind, soetushind, summa)
+                SELECT @naujas_nr,
                              artikkel,
-                             round(sum(isnull(R.kogus * ISNULL(A.kaal,1),0)),3),
-                             isnull((SELECT nimi FROM artiklid WHERE artiklid.kood = R.artikkel),'ALIEJUS'),
+                             ROUND(SUM(ISNULL(R.kogus * ISNULL(A.kaal, 1), 0)), 3),
+                             ISNULL((SELECT nimi FROM artiklid WHERE artiklid.kood = R.artikkel), 'ALIEJUS'),
                              R.projekt,
                              CASE
-                                    WHEN kogus <= 15
-                                           THEN 0
-                                    ELSE 
-                                           CONVERT(MONEY,(isnull((SELECT TOP 1 param FROM yld_data WHERE kaart = @tiekejas AND sisu = R.artikkel AND klass = 'HANKIJA' AND kood = 'SUBSIDIJA_TK'),0)))
+                                    WHEN kogus <= 15 THEN 0
+                                    ELSE CONVERT(MONEY, (ISNULL((SELECT TOP 1 param 
+                                                                FROM yld_data 
+                                                                WHERE kaart = @tiekejas 
+                                                                AND sisu = R.artikkel 
+                                                                AND klass = 'HANKIJA' 
+                                                                AND kood = 'SUBSIDIJA_TK'), 0)))
                              END,
                              CASE
-                                    WHEN kogus <= 15
-                                           THEN 0
-                                    ELSE 
-                                           CONVERT(MONEY,isnull((SELECT TOP 1 param FROM yld_data WHERE kaart = @tiekejas AND sisu = R.artikkel AND klass = 'HANKIJA' AND kood = 'SUBSIDIJA_TK'),0))
+                                    WHEN kogus <= 15 THEN 0
+                                    ELSE CONVERT(MONEY, ISNULL((SELECT TOP 1 param 
+                                                                FROM yld_data 
+                                                                WHERE kaart = @tiekejas 
+                                                                AND sisu = R.artikkel 
+                                                                AND klass = 'HANKIJA' 
+                                                                AND kood = 'SUBSIDIJA_TK'), 0))
                              END,
                              CASE
-                                    WHEN kogus <= 15
-                                           THEN 0
-                                    ELSE 
-                                           CONVERT(MONEY,isnull((SELECT TOP 1 param FROM yld_data WHERE kaart = @tiekejas AND sisu = R.artikkel AND klass = 'HANKIJA' AND kood = 'SUBSIDIJA_TK'),0)) * sum(isnull(kogus,0))
+                                    WHEN kogus <= 15 THEN 0
+                                    ELSE CONVERT(MONEY, ISNULL((SELECT TOP 1 param 
+                                                                FROM yld_data 
+                                                                WHERE kaart = @tiekejas 
+                                                                AND sisu = R.artikkel 
+                                                                AND klass = 'HANKIJA' 
+                                                                AND kood = 'SUBSIDIJA_TK'), 0)) * SUM(ISNULL(kogus, 0))
                              END
-                             
-              FROM ressursid_read R WITH(nolock)
-			  JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
-              JOIN hankijad H ON R.hankija = H.kood
-								and ((@caeg1 is null or @caeg2 is null) or exists(select * from yld_data with(nolock) where klass = 'hankija' and kood = 'SUTARTIES_DATA_TK' and kaart = H.kood and isdate(sisu) = 1 and try_parse(sisu as datetime) between @caeg1 and @caeg2))
-              WHERE R.aeg >= @aeg1
-              AND R.aeg <= @aeg2
-              AND ((SELECT TOP 1 isnull(kasutaja,'') FROM ressursid WITH(nolock) WHERE number = R.number) = @usr OR @usr IS NULL)
-              AND isnull(R.hankija,'') = @tiekejas
-              AND (isnull(R.projekt,'') = @project OR @project IS NULL)
-              AND (isnull(R.tekst1,'') = @vaztarastis OR @vaztarastis IS NULL)
-              AND (isnull(R.tekst2,'') = @inventorius OR @inventorius IS NULL)
-              AND (isnull(R.kommentaar,'') = @pastaba OR @pastaba IS NULL)
-              AND (isnull(H.klass,'') = @supp_class OR @supp_class IS NULL)
-              AND (@preke LIKE '%,' + isnull(R.artikkel,'') + ',%' OR @preke IS NULL)
-              AND (isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = R.hankija),'') = @tvarus OR isnull(@tvarus,'') = '')
-              AND (@geo_kodas LIKE '%,' + isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = R.projekt),'') + ',%' OR isnull(@geo_kodas,'') = '')
-              AND isnull(R.hankija_kontakt,'') = ''
-              AND ISNULL(R.suletud,0) = CASE
-                                                                               WHEN @gpais = 'Taip'
-                                                                                       THEN 1
-                                                                               WHEN @gpais = 'Ne'
-                                                                                       THEN 0
-                                                                               ELSE 
-                                                                                       ISNULL(R.suletud,0)
-                                                                               END
-              GROUP BY R.artikkel, R.projekt, R.kogus
-              
-              
-              UPDATE ressursid_read
-              SET hankija_kontakt = CONVERT(NVARCHAR(32),@naujas_nr)                 
-              WHERE aeg >= @aeg1
-              AND aeg <= @aeg2
-              AND ((SELECT TOP 1 isnull(kasutaja,'') FROM ressursid WITH(nolock) WHERE number = ressursid_read.number) = @usr OR @usr IS NULL)
-              AND isnull(hankija,'') = @tiekejas
-              AND (isnull(projekt,'') = @project OR @project IS NULL)
-              AND (isnull(tekst1,'') = @vaztarastis OR @vaztarastis IS NULL)
-              AND (isnull(tekst2,'') = @inventorius OR @inventorius IS NULL)
-              AND (isnull(ressursid_read.kommentaar,'') = @pastaba OR @pastaba IS NULL)
-              AND (@preke LIKE '%,' + isnull(artikkel,'') + ',%' OR @preke IS NULL)
-              AND (isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'SELF_DECLARATION' AND klass = 'HANKIJA' AND kaart = ressursid_read.hankija),'') = @tvarus OR isnull(@tvarus,'') = '')
-              AND (@geo_kodas LIKE '%,' + isnull((SELECT top 1 sisu FROM yld_data WITH(nolock) WHERE kood = 'GEO_KODAS' AND klass = 'PROJEKT' AND kaart = ressursid_read.projekt),'') + ',%' OR isnull(@geo_kodas,'') = '')
-              AND isnull(hankija_kontakt,'') = ''
-              AND ISNULL(ressursid_read.suletud,0) = CASE
-                                                                               WHEN @gpais = 'Taip'
-                                                                                       THEN 1
-                                                                               WHEN @gpais = 'Ne'
-                                                                                       THEN 0
-                                                                               ELSE 
-                                                                                       ISNULL(ressursid_read.suletud,0)
-                                                                               END
-              
-              SELECT 'Created <a target="_blank" href="ladu_sisse.asp?NUMBER=' + CONVERT(NVARCHAR(32),@naujas_nr) + '">' + CONVERT(NVARCHAR(32),@naujas_nr) + N'</a> stock receipt.'
-              FETCH next FROM tiekejai INTO @tiekejas
-       END
-       CLOSE tiekejai
-       DEALLOCATE tiekejai
-       SELECT N'------------- Stock receipts created --------------- ' + CONVERT(NVARCHAR(32),getdate(), 114)
-       END
-ELSE IF (@veiksmas = N'Judėjimų kūrimas')
-BEGIN
-       SELECT N'Taros judėjimai kolkas NEVYKDOMI'
-END
-END
-ELSE
-BEGIN
-       SELECT 'Klaida: nepasirinktas VEIKSMAS!'
+                FROM ressursid_read R WITH(nolock)
+                JOIN artiklid A WITH(nolock) ON A.kood = R.artikkel
+                JOIN hankijad H ON R.hankija = H.kood
+                    AND ((@caeg1 IS NULL OR @caeg2 IS NULL) 
+                    OR EXISTS (SELECT * FROM yld_data WITH(nolock) 
+                               WHERE klass = 'hankija' 
+                               AND kood = 'SUTARTIES_DATA_TK' 
+                               AND kaart = H.kood 
+                               AND ISDATE(sisu) = 1 
+                               AND TRY_PARSE(sisu AS datetime) BETWEEN @caeg1 AND @caeg2))
+                WHERE R.aeg >= @aeg1
+                AND R.aeg <= @aeg2
+                AND ((SELECT TOP 1 ISNULL(kasutaja, '') 
+                      FROM ressursid WITH(nolock) 
+                      WHERE number = R.number) = @usr 
+                OR @usr IS NULL)
+                AND ISNULL(R.hankija, '') = @tiekejas
+                AND (ISNULL(R.projekt, '') = @project OR @project IS NULL)
+                AND (ISNULL(R.tekst1, '') = @vaztarastis OR @vaztarastis IS NULL)
+                AND (ISNULL(R.tekst2, '') = @inventorius OR @inventorius IS NULL)
+                AND (ISNULL(R.kommentaar, '') = @pastaba OR @pastaba IS NULL)
+                AND (ISNULL(H.klass, '') = @supp_class OR @supp_class IS NULL)
+                AND (@preke LIKE '%,' + ISNULL(R.artikkel, '') + ',%' OR @preke IS NULL)
+                AND (ISNULL((SELECT TOP 1 sisu 
+                            FROM yld_data WITH(nolock) 
+                            WHERE kood = 'SELF_DECLARATION' 
+                            AND klass = 'HANKIJA' 
+                            AND kaart = R.hankija), '') = @tvarus 
+                OR ISNULL(@tvarus, '') = '')
+                AND (@geo_kodas LIKE '%,' + ISNULL((SELECT TOP 1 sisu 
+                                                    FROM yld_data WITH(nolock) 
+                                                    WHERE kood = 'GEO_KODAS' 
+                                                    AND klass = 'PROJEKT' 
+                                                    AND kaart = R.projekt), '') + ',%' 
+                OR ISNULL(@geo_kodas, '') = '')
+                AND ISNULL(R.hankija_kontakt, '') = ''
+                AND ISNULL(R.suletud, 0) = CASE
+                                               WHEN @gpais = 'Taip' THEN 1
+                                               WHEN @gpais = 'Ne' THEN 0
+                                               ELSE ISNULL(R.suletud, 0)
+                                           END
+                GROUP BY R.artikkel, R.projekt, R.kogus
+                
+                UPDATE ressursid_read
+                SET hankija_kontakt = CONVERT(NVARCHAR(32), @naujas_nr)                 
+                WHERE aeg >= @aeg1
+                AND aeg <= @aeg2
+                AND ((SELECT TOP 1 ISNULL(kasutaja, '') 
+                      FROM ressursid WITH(nolock) 
+                      WHERE number = ressursid_read.number) = @usr 
+                OR @usr IS NULL)
+                AND ISNULL(hankija, '') = @tiekejas
+                AND (ISNULL(projekt, '') = @project OR @project IS NULL)
+                AND (ISNULL(tekst1, '') = @vaztarastis OR @vaztarastis IS NULL)
+                AND (ISNULL(tekst2, '') = @inventorius OR @inventorius IS NULL)
+                AND (ISNULL(ressursid_read.kommentaar, '') = @pastaba OR @pastaba IS NULL)
+                AND (@preke LIKE '%,' + ISNULL(artikkel, '') + ',%' OR @preke IS NULL)
+                AND (ISNULL((SELECT TOP 1 sisu 
+                            FROM yld_data WITH(nolock) 
+                            WHERE kood = 'SELF_DECLARATION' 
+                            AND klass = 'HANKIJA' 
+                            AND kaart = ressursid_read.hankija), '') = @tvarus 
+                OR ISNULL(@tvarus, '') = '')
+                AND (@geo_kodas LIKE '%,' + ISNULL((SELECT TOP 1 sisu 
+                                                    FROM yld_data WITH(nolock) 
+                                                    WHERE kood = 'GEO_KODAS' 
+                                                    AND klass = 'PROJEKT' 
+                                                    AND kaart = ressursid_read.projekt), '') + ',%' 
+                OR ISNULL(@geo_kodas, '') = '')
+                AND ISNULL(hankija_kontakt, '') = ''
+                AND ISNULL(ressursid_read.suletud, 0) = CASE
+                                                           WHEN @gpais = 'Taip' THEN 1
+                                                           WHEN @gpais = 'Ne' THEN 0
+                                                           ELSE ISNULL(ressursid_read.suletud, 0)
+                                                       END
+                
+                SELECT 'Created <a target="_blank" href="ladu_sisse.asp?NUMBER=' + CONVERT(NVARCHAR(32), @naujas_nr) + '">' + CONVERT(NVARCHAR(32), @naujas_nr) + N'</a> stock receipt.'
+                FETCH NEXT FROM tiekejai INTO @tiekejas
+            END
+            CLOSE tiekejai
+            DEALLOCATE tiekejai
+            SELECT N'------------- Stock receipts created --------------- ' + CONVERT(NVARCHAR(32), GETDATE(), 114)
+        END
+        ELSE IF (@veiksmas = N'Judėjimų kūrimas')
+        BEGIN
+            SELECT N'Taros judėjimai kolkas NEVYKDOMI'
+        END
+    END
+    ELSE
+    BEGIN
+        SELECT 'Klaida: nepasirinktas VEIKSMAS!'
+    END
 END
 GO
