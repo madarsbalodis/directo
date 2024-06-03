@@ -157,183 +157,168 @@ if @checkingType in ('contractVsDocSumsPerc','contractVsDocSums','contractVsDocS
 	end
 
 if @docType='oarve'
-	begin
-		select @contractDfValue = isnull((select lisa_field2 from or_arved where number=@docNumber),'')
-	if @checkingType in ('Contract','contractVsDocSumsPerc','contractVsDocSums','contractVsDocSumsPercSave')
-		begin
-		if isnull(@contractDfValue,'')!=''
-			begin
-				
-				if isnumeric(@contractDfValue)=1
-					begin
-						if (select count(*) from lepingud where number=@contractDfValue) = 1
-							begin
-								if isnull((select hankija_kood from Or_arved where number=@docNumber),'')=isnull((select hankija_kood from lepingud where number=@contractDfValue),'')
-									begin
-											if (select count(*) from or_arved_read where number=@docNumber) >=1
-									begin
-										insert @main_document_project_data_table (project)
-										select isnull(otr.projekt,ot.projekt) from or_arved_read otr left join or_arved ot on otr.number=ot.number where otr.number=@docNumber group by otr.projekt,ot.projekt
+begin
+    select @contractDfValue = isnull((select lisa_field2 from or_arved where number=@docNumber), '')
+    if @checkingType in ('Contract', 'contractVsDocSumsPerc', 'contractVsDocSums', 'contractVsDocSumsPercSave')
+    begin
+        if isnull(@contractDfValue, '') != ''
+        begin
+            if isnumeric(@contractDfValue) = 1
+            begin
+                if (select count(*) from lepingud where number = @contractDfValue) = 1
+                begin
+                    if isnull((select hankija_kood from or_arved where number = @docNumber), '') = isnull((select hankija_kood from lepingud where number = @contractDfValue), '')
+                    begin
+                        if (select count(*) from or_arved_read where number = @docNumber) >= 1
+                        begin
+                            insert @main_document_project_data_table (project)
+                            select isnull(otr.projekt, ot.projekt) 
+                            from or_arved_read otr 
+                            left join or_arved ot on otr.number = ot.number 
+                            where otr.number = @docNumber 
+                            group by otr.projekt, ot.projekt
 
-										/*
-										update @main_document_project_data_table set countInContract=(select count(*) from lepingud_read inner join lepingud on lepingud.number=lepingud_read.number where lepingud_read.number=@contractDfValue and iif(isnull(lepingud_read.projekt,'')!='',lepingud_read.projekt,isnull(lepingud.projekt,''))=isnull(project,''))
-										*/
+                            update @main_document_project_data_table set countInContract = (
+                                select count(*)
+                                from lepingud l
+                                where l.number = @contractDfValue
+                                and (
+                                    isnull(l.projekt, '') = ''
+                                    or isnull(project, '') = isnull(l.projekt, '')
+                                )
+                            )
 
-										
-										-- Update @main_document_project_data_table for project matching
-										update @main_document_project_data_table
-										set countInContract = (
-											select count(*)
-											from lepingud_read
-											inner join lepingud on lepingud.number = lepingud_read.number
-											where lepingud_read.number = @contractDfValue
-											and (
-												isnull(lepingud_read.projekt, '') = ''
-												or isnull(lepingud.projekt, '') = ''
-												or isnull(project, '') = isnull(lepingud_read.projekt, isnull(lepingud.projekt, ''))
-											)
-										)
-										
-																				
-
-										if (select count(*) from @main_document_project_data_table where countInContract = 0 ) >= 1
-											begin
-											select @returntxt = convert(nvarchar(max),(select 'Projekts '+convert(nvarchar(max),project)+N' nav atrodams		līgumā:'+convert(nvarchar(max),@contractDfValue) from @main_document_project_data_table where countInContract = 0 for xml path (''),type,elements))
-											end
-										else
-											begin
-												set @projectValidationStatus = 'OK'
-											end
-									end
-								else
-									begin
-										select @returntxt = N'Dokumentam ir 0 rindas'
-									end
-									end
-								else
-																		begin
-										select @returntxt = N'Līgumā '+convert(nvarchar(max),@contractDfValue)+N' norādītais piegādātājs neatbilst dokumentā norādītajam piegādātājam'
-									end
-
-							end
-						else
-							begin
-								select @returntxt = N'Norādītais līguma Nr. nav atrodams'
-							end
-					end
-				else
-					begin
-						select @returntxt = N'Norādītais līguma nr neatbilst līguma dokumenta formātam'
-					end
-			end
-		else
-			begin
-				select @returntxt = N'Nav aizpildīts Līguma Nr.'
-			end
+                            if (select count(*) from @main_document_project_data_table where countInContract = 0) >= 1
+                            begin
+                                if (select count(*) from @main_document_project_data_table where isnull(project, '') = '') >= 1
+                                begin
+                                    select @returntxt = 'Projekts nav norādīts rēķinā, bet tas ir nepieciešams līgumā: ' + @contractDfValue
+                                end
+                                else
+                                begin
+                                    select @returntxt = convert(nvarchar(max), (select 'Projekts ' + convert(nvarchar(max), project) + N' nav atrodams līgumā: ' + convert(nvarchar(max), @contractDfValue) from @main_document_project_data_table where countInContract = 0 for xml path (''), type, elements))
+                                end
+                            end
+                            else
+                            begin
+                                set @projectValidationStatus = 'OK'
+                            end
+                        end
+                        else
+                        begin
+                            select @returntxt = N'Dokumentam ir 0 rindas'
+                        end
+                    end
+                    else
+                    begin
+                        select @returntxt = N'Līgumā ' + convert(nvarchar(max), @contractDfValue) + N' norādītais piegādātājs neatbilst dokumentā norādītajam piegādātājam'
+                    end
+                end
+                else
+                begin
+                    select @returntxt = N'Norādītais līguma Nr. nav atrodams'
+                end
+            end
+            else
+            begin
+                select @returntxt = N'Norādītais līguma nr neatbilst līguma dokumenta formātam'
+            end
+        end
+        else
+        begin
+            select @returntxt = N'Nav aizpildīts Līguma Nr.'
+        end
+    end
 end
+
 if @checkingType in ('contractVsDocSumsPerc', 'contractVsDocSums', 'contractVsDocSumsPercSave')
 begin
     if @projectValidationStatus = 'OK'
     begin
-        update @main_document_project_data_table set sumInContract = isnull((
-            select sum(lepingud_read.summa)
-            from lepingud_read
-            inner join lepingud on lepingud.number = lepingud_read.number
-            where lepingud.number = @contractDfValue
-            and (
-                isnull(lepingud_read.projekt, '') = ''
-                or isnull(lepingud.projekt, '') = ''
-                or isnull(isnull(lepingud_read.projekt, lepingud.projekt), '') = isnull(project, '')
-            )
-        ), 0)
-
-        update @main_document_project_data_table set usedSumInInInvoiceWoOrder = isnull((
-            select sum(oar.summa)
-            from or_arved_read oar
-            left join or_arved oa on oar.number = oa.number
-            where isnull(oar.projekt, oa.projekt) = project
-            and isnull(oa.ostutellimus, '') = ''
-            and isnull(oa.kinnitatud, 0) = 1
-            and oa.number != @docNumber
-            and oa.lisa_field2 = @contractDfValue
-        ), 0)
-
-        update @main_document_project_data_table set usedSumInInInvoiceWithOrder = isnull((
-            select sum(oar.summa)
-            from or_arved_read oar
-            left join or_arved oa on oar.number = oa.number
-            where isnull(oar.projekt, oa.projekt) = project
-            and isnull(oa.ostutellimus, '') != ''
-            and isnull(oa.kinnitatud, 0) = 1
-            and oa.number != @docNumber
-            and oa.lisa_field2 = @contractDfValue
-        ), 0)
-
-        update @main_document_project_data_table set reservedSumWithOrder = isnull((
-            select sum(otr.summa)
-            from otell_tellimused_read otr
-            left join otell_tellimused ot on otr.number = ot.number
-            where isnull(otr.r_projekt, ot.projekt) = project
-            and isnull(ot.kinnitatud, 0) = 1
-            and ot.number not in (
-                select oa.ostutellimus
-                from or_arved_read oar
-                left join or_arved oa on oar.number = oa.number
-                where isnull(oar.projekt, oa.projekt) = project
-                and isnull(oa.ostutellimus, '') != ''
-                and isnull(oa.kinnitatud, 0) = 1
-                and oa.lisa_field2 = @contractDfValue
-            )
-            and ot.number != @docNumber
-            and ot.lisa_field2 = @contractDfValue
-        ), 0)
-
-        update @main_document_project_data_table set CurrentDoc = isnull((
-            select sum(oar.summa)
-            from or_arved_read oar
-            left join or_arved oa on oar.number = oa.number
-            where isnull(oar.projekt, oa.projekt) = project
-            and oa.number = @docNumber
-            and oa.lisa_field2 = @contractDfValue
-        ), 0)
-
-        update @main_document_project_data_table set total = (
-            isnull(usedSumInInInvoiceWoOrder, 0) +
-            isnull(usedSumInInInvoiceWithOrder, 0) +
-            isnull(reservedSumWithOrder, 0) +
-            isnull(CurrentDoc, 0)
+        -- Validate the project in the contract against the project in the invoice
+        if exists (
+            select 1
+            from @main_document_project_data_table mdp
+            inner join lepingud l on l.projekt = mdp.project or l.projekt is null
+            where l.number = @contractDfValue
         )
-
-        update @main_document_project_data_table set usedPerc = (iif(total = 0, 1, total) / sumInContract) * 100
-
-        if @checkingType = 'contractVsDocSums'
         begin
-            if (select count(*) from @main_document_project_data_table where sumInContract <= total) >= 1
+            -- Sum in contract (tasuda_from_leping)
+            update @main_document_project_data_table set sumInContract = isnull((
+                select sum(summa)
+                from project_sums_checking_by_doc_lv(@contractDfValue, NULL, 'contract_sum')
+            ), 0)
+
+            -- Used sum (used_sum)
+            update @main_document_project_data_table set usedSumInInInvoiceWoOrder = isnull((
+                select sum(summa)
+                from project_sums_checking_by_doc_lv(@contractDfValue, NULL, 'contract_sum2')
+            ), 0)
+
+            -- Sum from or_arved_read
+            update @main_document_project_data_table set CurrentDoc = isnull((
+                select sum(oar.summa)
+                from or_arved_read oar
+                where oar.number = @docNumber
+            ), 0)
+
+            -- Total sum used
+            update @main_document_project_data_table set total = (
+                isnull(usedSumInInInvoiceWoOrder, 0) + isnull(CurrentDoc, 0)
+            )
+
+            -- Calculate percentage used
+            update @main_document_project_data_table set usedPerc = (iif(sumInContract = 0, 0, (total / sumInContract) * 100))
+
+            -- Check for different usage percentages
+            if @checkingType = 'contractVsDocSums'
             begin
-                select @returntxt = convert(nvarchar(max), (
-                    select N'Projekta ' + convert(nvarchar(max), project) + N' paredzēta līgumā ' + convert(nvarchar(max), @contractDfValue) + ' = ' + convert(nvarchar(max), sumInContract) + N' bet izmantota ' + convert(nvarchar(max), (isnull(total, 0)))
-                    from @main_document_project_data_table where sumInContract <= total
-                    for xml path (''), type, elements
-                ))
+                if (select count(*) from @main_document_project_data_table where sumInContract <= total) >= 1
+                begin
+                    select @returntxt = convert(nvarchar(max), (
+                        select N'Projekta ' + convert(nvarchar(max), project) + N' paredzēta līgumā ' + convert(nvarchar(max), @contractDfValue) + ' = ' + convert(nvarchar(max), sumInContract) + N' bet izmantota ' + convert(nvarchar(max), (isnull(total, 0)))
+                        from @main_document_project_data_table where sumInContract <= total
+                        for xml path (''), type, elements
+                    ))
+                end
+            end
+
+            if @checkingType in ('contractVsDocSumsPerc', 'contractVsDocSumsPercSave')
+            begin
+                if (select count(*) from @main_document_project_data_table where usedPerc >= 80 and usedPerc < 100) >= 1
+                begin
+                    select @returntxt = convert(nvarchar(max), (
+                        select N'Projekta ' + convert(nvarchar(max), project) + N' paredzēta līgumā ' + convert(nvarchar(max), @contractDfValue) + ' = ' + convert(nvarchar(max), sumInContract) + N' summa izmantota ' + convert(nvarchar(max), (isnull(cast(usedPerc as decimal(15, 4)), 0))) + '%'
+                        from @main_document_project_data_table where usedPerc >= 80 and usedPerc < 100 for xml path (''), type, elements
+                    ))
+                end
+
+                if (select count(*) from @main_document_project_data_table where usedPerc >= 100) >= 1
+                begin
+                    select @returntxt = convert(nvarchar(max), (
+                        select N'Projekta ' + convert(nvarchar(max), project) + N' paredzēta līgumā ' + convert(nvarchar(max), @contractDfValue) + ' = ' + convert(nvarchar(max), sumInContract) + N' summa izmantota ' + convert(nvarchar(max), (isnull(cast(usedPerc as decimal(15, 4)), 0))) + '%'
+                        from @main_document_project_data_table where usedPerc >= 100 for xml path (''), type, elements
+                    ))
+                end
             end
         end
-
-        if @checkingType in ('contractVsDocSumsPerc', 'contractVsDocSumsPercSave')
+        else
         begin
-            if (select count(*) from @main_document_project_data_table where usedPerc > 100.0001) >= 1
-            begin
-                select @returntxt = convert(nvarchar(max), (
-                    select N'Projekta ' + convert(nvarchar(max), project) + N' paredzēta līgumā ' + convert(nvarchar(max), @contractDfValue) + ' = ' + convert(nvarchar(max), sumInContract) + N' summa izmantota ' + convert(nvarchar(max), (isnull(cast(usedPerc as decimal(15,4)), 0))) + '%' 
-                    from @main_document_project_data_table where usedPerc > 100.0001 for xml path (''), type, elements
-                ))
-            end
+            select @returntxt = N'Projekts rēķinā neatbilst līgumā norādītajam projektam'
         end
     end
 end
-end
---return alert text if exsists
+
+
+-- return alert text if exsists,
+
+-- select * from lepingud_read where number = '100097'
+
+-- select * from lepingud where number = '100097'
+
+-- select * from or_arved_read where number = '100801'
+
 return @returntxt
 end
 GO
-
 
