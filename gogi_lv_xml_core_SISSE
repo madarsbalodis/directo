@@ -1,0 +1,1070 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER  	PROCEDURE [dbo].[xml_core_SISSE] @what nvarchar(32) = NULL, @session_id nvarchar(100) = NULL, @test int = 0, @xmlappkey int = 0, @second_app nvarchar(8) = '' AS
+--		declare  @what nvarchar(32) = 'invoice', @session_id nvarchar(100) = 'FE430540-F72B-4B96-AF3B-04C38F63FDB1-1228', @test int = 0, @xmlappkey int = 0, @second_app nvarchar(8) = ''
+
+DECLARE @result1 xml, @result2 nvarchar(max)
+DECLARE @xkey nvarchar(100), @appkey nvarchar(32), @webid nvarchar(100), @number int, @code nvarchar(32), @ext_unique_id nvarchar(100), @abort int, @update int
+DECLARE @ts datetime, @customer_code nvarchar(32), @supplier_code nvarchar(32), @payment_total money, @priceformula nvarchar(32), @vat_region int, @confirm int
+DECLARE @tmp_number int, @tmp_code nvarchar(32), @err nvarchar(32), @numberseries nvarchar(32)
+DECLARE @sql nvarchar(max), @id_field nvarchar(40)
+DECLARE @email nvarchar(255), @itemclass nvarchar(255), @delete int
+DECLARE @testresults nvarchar(max), @testresultsheader nvarchar(max), @testresultrows nvarchar(max), @testid int
+DECLARE @itemcode_prefix nvarchar(32), @itemcode_series_len int, @itemcode_csum int, @aftersave_module nvarchar(32), @tegevus nvarchar(32)
+DECLARE @tyyp nvarchar(32), @user_code nvarchar(32)
+DECLARE @split_rn_add int, @split_kogus money, @split_saadud money, @split_rn int, @laos money, @split_sisu nvarchar(255), @split_trn int, @split_tellitud money
+DECLARE @split_artikkel nvarchar(32), @split_sn nvarchar(32), @split_variant nvarchar(32), @split_yhikuhind money, @split_objekt nvarchar(255)
+DECLARE @split_riiulist nvarchar(32), @split_riiulisse nvarchar(32), @split_kommentaar nvarchar(255), @split_tell int
+declare @ediIdentifier nvarchar(100), @range nvarchar(32), @ag datetime
+declare @newCustomerCode nvarchar(32)
+declare @sorderNumber int
+declare @customerCode nvarchar(32), @contactType int, @vatZone int, @customer_name nvarchar(255), @customerregnr nvarchar(32), @defStock nvarchar(32),@defWebStock nvarchar(32), @defCustomer nvarchar(32)
+SET NOCOUNT ON;
+
+--INSERT INTO in_log_analyze VALUES ( @ts, getdate(), 'bhg_item', 'proc', @webid, 'START', 0 )
+
+
+select @ts = GETDATE()
+SET @xkey = ISNULL( NULLIF( @session_id, '' ), CONVERT( nvarchar( max ), @ts, 121 ) )
+
+CREATE TABLE #results ( number nvarchar(32), tyyp nvarchar(32), result int, descr nvarchar(255), submittype nvarchar(32), ext_id nvarchar(32) )
+CREATE TABLE #output ( msg nvarchar(max) )
+
+--IF @test = 1
+	/* tfield = identification field in target table; tid = identification value; tord = field for row identifications and order; tdel = allow delete after test output */
+--	DECLARE @testparams TABLE ( testid int identity, ttable nvarchar(64), tfield nvarchar(64), tid nvarchar(64), tord nvarchar(255), tdel int )
+/*
+IF @what = 'bhg_sales_order' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_tell_tellimused WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_tell_tellimused SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_tell_tellimused_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_tell_tellimused WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_tell_tellimused WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_customer' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_kliendid WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_kliendid SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_kliendid_lisa SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_kliendid_kontaktid SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( kood IN ( SELECT kood FROM in_bhg_kliendid WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_kliendid WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_sales_invoice' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_mr_arved WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_mr_arved SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_mr_arved_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_mr_arved WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_mr_arved WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_receipt' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_mr_laekumised WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_mr_laekumised SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_mr_laekumised_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_mr_laekumised WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_mr_laekumised WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_item' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_artiklid WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_artiklid SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_artiklid_lisa SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_artiklid_pakendid SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_artiklid_hankija_artiklid SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( kood IN ( SELECT kood FROM in_bhg_artiklid WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_artiklid WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_purchase_order' AND @xkey = @session_id AND NOT EXISTS ( SELECT x FROM in_bhg_otell_tellimused WITH(nolock) WHERE x = @session_id )
+BEGIN
+	UPDATE in_bhg_otell_tellimused SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_otell_tellimused_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_otell_tellimused WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_otell_tellimused WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_purchase_invoice' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_or_arved WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_or_arved SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_or_arved_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_or_arved WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_or_arved WITH(nolock) WHERE x = @xkey ) )
+END
+IF @what = 'bhg_stock_receipt' AND ( @session_id IS NULL OR NOT EXISTS ( SELECT x FROM in_bhg_ladu_sissetulekud WITH(nolock) WHERE x = @session_id ) )
+BEGIN
+	UPDATE in_bhg_ladu_sissetulekud SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_ladu_sissetulekud_read SET x = @xkey WHERE x IS NULL
+	UPDATE in_bhg_manused SET x = @xkey WHERE x IS NULL AND
+		( number IN ( SELECT number FROM in_bhg_ladu_sissetulekud WITH(nolock) WHERE x = @xkey ) OR ext_unique_id IN ( SELECT ext_unique_id FROM in_bhg_ladu_sissetulekud WITH(nolock) WHERE x = @xkey ) )
+END
+*/
+
+/*
+Example of result XML:
+
+<results>
+<result type="0" desc="Created" docid="123" ext_id="123" doctype="ORDER" submit="Orders"/>
+<result type="19" desc="Not confirmed: Dokument on varasem kui mooduli sulgemise aeg 01.02.2020 vs 13.12.2012" docid="123" ext_id="123" doctype="ORDER" submit="Orders"/>
+</results>
+
+type="0" means success
+
+0	Created
+0	Updated		(if document update feature is used)
+0	Confirmed	(if auto document confirmation is used)
+
+2	Too secure location
+3	Database is moved to a new server. Takes about 15 minutes
+4	Database is closed - user count is zero
+5	Unauthorized
+6	Invalid user given
+7	Invalid IP source given
+8	Invalid xml given: ...
+9	Error on import: ...
+
+11	Duplicate
+12	Missing document identificator
+13	Missing customer code /	Missing customer regno	(if code is not used)
+14	Update not allowed	(if document is commited or has related documents)
+
+17	Document insert failed 
+18	uniqueid field not found	(needs to be set up correctly in transport parameters)
+19	Removal of document not allowed
+29	Not confirmed: ...	(if auto document confirmation is used)
+
+30	Created		(creation of related document like customer, payment etc.)
+30	Updated		(update of related document like customer, payment etc.)
+30	Confirmed	(confirmed related document like payment etc.)
+31	... not found	(prerequisite of creation of related document like customer, payment etc. not met)
+39	... not confirmed: ...	(if auto document confirmation for related document is in use)
+
+99	No processable XML data found for document:  ...
+
+CREATE TABLE [dbo].[in_xml_errors]( [rn] [int] IDENTITY(1,1) NOT NULL, [ts_inserted] [datetime] NULL, [ts_processed] [datetime] NULL, [dat_xml] [nvarchar](max) NULL, [what] [nvarchar](32) NULL,
+PRIMARY KEY CLUSTERED ( [rn] ASC ) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY] ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+CREATE INDEX IX_in_xml_errors ON in_xml_errors (ts_inserted)
+
+insert into kasutajad (kood, nimi) select 'XML','XML liides'
+insert into tr_params ( tyyp, kood, param1, param2, selgitus ) values ( 'XML', 'bhg_appkey'
+, convert(nvarchar,convert(binary(4),convert(int,RAND()*power(2,30))),2)
++convert(nvarchar,convert(binary(4),convert(int,RAND()*power(2,30))),2)
++convert(nvarchar,convert(binary(4),convert(int,RAND()*power(2,30))),2)
++convert(nvarchar,convert(binary(4),convert(int,RAND()*power(2,30))),2), NULL, 'key for new BGH data interface' )
+select * from tr_params where tyyp = 'XML' order by param2, kood
+select * from tr_params where tyyp = 'XML' and param2 = 'ORDER' order by param2, kood
+
+insert into tr_params ( tyyp, kood, param1, param2, selgitus ) values ( 'XML', 'posinvoice', '0', 'INVOICE', '1 = kassaarve' )
+update tr_params set param1 = '0' where kood = 'autocustomer' and tyyp = 'XML' and param2 = 'INVOICE'
+
+
+*/
+--add x key
+if @what in  ('order','order2')
+	begin
+		update in_tell_tellimused set x=@xkey where x is null
+		update in_tell_tellimused_read set x=@xkey where x is null
+		update in_tell_tellimused_kliendid set x=@xkey where x is null
+	end
+--proceeding start
+if @what='order'
+	begin
+		DECLARE documents CURSOR FOR SELECT number FROM in_tell_tellimused WITH(nolock) WHERE x = @xkey
+			OPEN documents
+			FETCH NEXT FROM documents INTO @webid
+			WHILE @@FETCH_STATUS = 0
+			BEGIN
+					if (select count(number) from tell_tellimused where kliendi_tellimus=convert(nvarchar(max),@webid)) = 0
+						begin
+							EXEC dbo.get_dok_number @moodul='tellimus', @seeria='DOC2023', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+							update tell_tellimused set 
+														kliendi_tellimus=z.number,
+														aeg=z.orderDate
+							from (select * from in_tell_tellimused where number=@webid and x=@xkey)z
+							where tell_tellimused.number=@number
+
+							
+							
+							select @defCustomer = param1, @defStock=param2 from tr_params where tyyp='xmlcore' and kood=@what
+
+							select @customerCode = id, @contactType = customertype, @vatZone = vatZone, @customer_name = customername, @customerregnr = regNumber from in_tell_tellimused_kliendid where number=@webid and x=@xkey
+				
+				--gal noliktava
+				--40001
+							update tell_tellimused set ladu=@defStock where number=@number
+					if isnull(@customerCode,'')=''
+						begin
+							update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3,
+																		kmregnumber=z.kmregnr
+											from (select * from kliendid where kood=@defCustomer)z
+										where tell_tellimused.number=@number
+						end
+					if isnull(@customerCode,'')!=''
+						begin
+							if isnull(@contactType,0)=1
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where tell_tellimused.number=@number
+										end
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+
+
+												update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where tell_tellimused.number=@number
+
+										end
+										
+								end
+							if isnull(@contactType,0)=0
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3,
+																		kmregnumber=z.kmregnr
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where tell_tellimused.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=1
+										begin
+										update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3,
+																		kmregnumber=z.kmregnr
+											from (select * from kliendid where kood=(select kood from kliendid where regnr=@customerregnr))z
+										where tell_tellimused.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=0 and (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+												SELECT * FROM yld_data
+
+												update tell_tellimused set 
+																		klient_kood=z.kood,
+																		klient_nimi=z.nimi,
+																		maa=z.maa,
+																		lisa_field1=@customerCode,
+																		aadress1=z.aadress1,
+																		aadress2=z.aadress2,
+																		aadress3=z.aadress3
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where tell_tellimused.number=@number
+										end
+
+								end
+							end
+
+								INSERT tell_tellimused_read (number, rn, artikkel,nimetus, kogus, yhikuhind, summa,kmkood,konto)
+								select @number, rn, item, linedescription ,quantity,price, quantity * price,(select dbo.get_art_kmkood(item,0)),(select dbo.get_art_konto(item,0)) from in_tell_tellimused_read where number = @webid and x=@xkey
+								exec dbo.arvuta_tellimus @number
+							INSERT INTO #results VALUES ( @number, 'ORDER', 1, 'OK', 'Orders', @webid)
+						end
+					else
+						begin
+							INSERT INTO #results VALUES ( NULL, 'ORDER', 11, 'Duplicate', 'Orders', @webid)
+						end
+					FETCH NEXT FROM documents INTO @webid
+
+			END
+			CLOSE documents
+			DEALLOCATE documents
+
+			/* cleanup */
+			DELETE FROM in_tell_tellimused WHERE x = @xkey
+			DELETE FROM in_tell_tellimused_read WHERE x = @xkey
+		--	DELETE FROM in_tell_tellimused_kliendid WHERE x = @xkey
+	end
+
+--proceeding end
+if @what= 'order2'
+	begin
+			DECLARE documents CURSOR FOR SELECT number FROM in_tell_tellimused WITH(nolock) WHERE x = @xkey
+			OPEN documents
+			FETCH NEXT FROM documents INTO @webid
+			WHILE @@FETCH_STATUS = 0
+			BEGIN
+					if (select count(number) from ladu_liikumised where lisa_field1=convert(nvarchar(max),@webid)) = 0
+						begin
+							EXEC dbo.get_dok_number @moodul='liikumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+							select @defCustomer = param1, @defStock=param2, @defWebStock = param3 from tr_params where tyyp='xmlcore' and kood='order'
+							update ladu_liikumised set 
+														lisa_field1=z.number,
+														aeg=z.orderDate,
+														laost = @defStock,
+														lattu = @defWebStock
+							from (select * from in_tell_tellimused where number=@webid and x=@xkey)z
+							where ladu_liikumised.number=@number
+
+							
+							
+							
+
+							select @customerCode = id, @contactType = customertype, @vatZone = vatZone, @customer_name = customername, @customerregnr = regNumber from in_tell_tellimused_kliendid where number=@webid and x=@xkey
+				
+				--gal noliktava
+				--40001
+							--update ladu_liikumised set ladu=@defStock where number=@number
+							
+					if isnull(@customerCode,'')=''
+						begin
+							update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=@defCustomer)z
+										where ladu_liikumised.number=@number
+						end
+					if isnull(@customerCode,'')!=''
+						begin
+							if isnull(@contactType,0)=1
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+
+
+												update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+
+										end
+										
+								end
+							if isnull(@contactType,0)=0
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=1
+										begin
+										update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kood from kliendid where regnr=@customerregnr))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=0 and (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+
+
+												update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+
+								end
+							end
+
+							insert ladu_liikumised_read (number,artikkel,nimetus,kogus,kogus_saadud,rn)
+							select @number, item, linedescription,quantity,quantity,ROW_NUMBER() OVER(ORDER BY item, linedescription,quantity ASC) from in_tell_tellimused_read where number = @webid and x=@xkey
+
+							exec dbo.liikumine_laoid_split @number
+							exec dbo.kinnita_LIIK @number
+
+							if (select count(*) from ladu_liikumised where number=@number)=1
+								begin
+									EXEC dbo.get_dok_number @moodul='tellimus', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+									update tell_tellimused set 
+														kliendi_tellimus=z.number,
+														aeg=z.orderDate
+									from (select * from in_tell_tellimused where number=@webid and x=@xkey)z
+									where tell_tellimused.number=@number
+
+									update tell_tellimused set 
+															klient_kood=z.kood,
+															klient_nimi=z.nimi,
+															maa=z.maa,
+															lisa_field1=@customerCode,
+															aadress1=z.aadress1,
+															aadress2=z.aadress2,
+															aadress3=z.aadress3,
+															kmregnumber=z.kmregnr,
+															ladu=@defWebStock,
+															tingimus='0',
+															valuuta='EUR',
+															kurssBV1='1'
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+									where tell_tellimused.number=@number
+
+									INSERT tell_tellimused_read (number, rn, artikkel,nimetus, kogus, yhikuhind, summa,kmkood,konto)
+									select @number, rn, item, linedescription ,quantity,price, quantity * price,(select dbo.get_art_kmkood(item,0)),(select dbo.get_art_konto(item,0)) from in_tell_tellimused_read where number = @webid and x=@xkey
+									exec dbo.arvuta_tellimus @number
+
+									
+									select @sorderNumber = @number
+
+									if (select count(*) from tell_tellimused where number=@sorderNumber)=1
+										begin
+											EXEC dbo.get_dok_number @moodul='laekumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+											update mr_laekumised set
+																	seletus='Pasūtījuma '+convert(nvarchar(max),@webid)+' apmaksa',
+																	aeg=dateadd(ss,1,z.aeg),
+																	cu='XML',
+																	ts=getdate(),
+																	tasumisviis='STRIPE'
+											from (select * from tell_tellimused where number=@sorderNumber)z
+											where mr_laekumised.number=@number
+
+											insert mr_laekumised_read (number,ettemaks,klient_kood, klient_nimi,valuuta_p,kurss_p,summa_p,tasuti,kmk,etteid)
+											select @number, @sorderNumber,tt.klient_kood,tt.klient_nimi,tt.valuuta,tt.kurssbv1,sum(ttr.rsum),sum(ttr.rsum),ttr.kmkood,(select max(etteid)+1 from mr_laekumised_read) from tell_tellimused_read ttr inner join tell_tellimused tt on ttr.number=tt.number where tt.number=@sorderNumber group by tt.klient_kood,tt.klient_nimi,tt.valuuta,tt.kurssbv1,ttr.kmkood
+
+											exec dbo.arvuta_laekumine @number
+											exec dbo.mr_laekumine_etteID_split @number
+											exec dbo.kinnita_LAEK @number
+										end
+
+								end
+
+
+							INSERT INTO #results VALUES ( @sorderNumber, 'ORDER', 1, 'OK', 'Orders', @webid)
+						end
+					else
+						begin
+							declare @maxStockMovement int, @lastRetMovement int
+							--INSERT INTO #results VALUES ( NULL, 'ORDER', 11, 'Duplicate', 'Orders', @webid)
+							select @maxStockMovement = max(number) from ladu_liikumised where lisa_field1=convert(nvarchar(max),@webid)
+
+
+							if (select sum(kogus_saadud) from ladu_liikumised_read where number=@maxStockMovement) <> (select sum(quantity)  from in_tell_tellimused_read where number = @webid and x=@xkey)
+								begin
+
+									EXEC dbo.get_dok_number @moodul='liikumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+									select @defCustomer = param1, @defStock=param2, @defWebStock = param3 from tr_params where tyyp='xmlcore' and kood='order'
+
+									update ladu_liikumised 
+															set 
+																aeg = z.aeg,
+																kl_kood=z.kl_kood,
+																kl_nimi=z.kl_nimi,
+																laost=@defWebStock,
+																lattu=@defStock,
+																lisa_field1='RET'+convert(nvarchar(max),@webid)
+									from 
+									(select dateadd(ss,1,aeg) aeg,kl_kood,kl_nimi from ladu_liikumised where number=@maxStockMovement)z
+									where ladu_liikumised.number=@number
+
+									insert ladu_liikumised_read (number,artikkel,nimetus,kogus,kogus_saadud,rn)
+									select @number,artikkel,nimetus,kogus,kogus_saadud,rn from ladu_liikumised_read where number=@maxStockMovement
+
+									exec dbo.liikumine_laoid_split @number
+									exec dbo.kinnita_LIIK @number
+
+									select @lastRetMovement = @number
+
+									if isnull((select kinnitatud from ladu_liikumised where number=@lastRetMovement),0)=1
+										begin
+											EXEC dbo.get_dok_number @moodul='liikumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+							select @defCustomer = param1, @defStock=param2, @defWebStock = param3 from tr_params where tyyp='xmlcore' and kood='order'
+							update ladu_liikumised set 
+														lisa_field1=z.number,
+														aeg=(select dateadd(ss,1,aeg) from ladu_liikumised where number=@lastRetMovement),
+														laost = @defStock,
+														lattu = @defWebStock
+							from (select * from in_tell_tellimused where number=@webid and x=@xkey)z
+							where ladu_liikumised.number=@number
+
+							
+							
+							
+
+							select @customerCode = id, @contactType = customertype, @vatZone = vatZone, @customer_name = customername, @customerregnr = regNumber from in_tell_tellimused_kliendid where number=@webid and x=@xkey
+				
+				--gal noliktava
+				--40001
+							--update ladu_liikumised set ladu=@defStock where number=@number
+							
+					if isnull(@customerCode,'')=''
+						begin
+							update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=@defCustomer)z
+										where ladu_liikumised.number=@number
+						end
+					if isnull(@customerCode,'')!=''
+						begin
+							if isnull(@contactType,0)=1
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+
+
+												update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+
+										end
+										
+								end
+							if isnull(@contactType,0)=0
+								begin
+									if (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=1
+										begin
+											update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=1
+										begin
+										update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kood from kliendid where regnr=@customerregnr))z
+										where ladu_liikumised.number=@number
+										end
+									if (select count(kood) from kliendid where regnr=@customerregnr)=0 and (select count(kaart) from yld_data where kood='CUSTOMERID' and klass='Klient' and sisu=@customerCode)=0
+										begin
+											set @newCustomerCode = convert(nvarchar(max),(select max(kood)+1 from kliendid where isnumeric(kood)=1))
+											insert kliendid (kood)
+											select @newCustomerCode
+
+											update kliendid 
+															set 
+																maa=z.vatZone,
+																nimi=z.customername,
+																regnr=z.regNumber,
+																kmregnr=z.vatRegNumber,
+																email=z.email,
+																telefon=z.phone,
+																klient_tyyp=z.customertype,
+																cu = 'XML',
+																ts = getdate(),
+																aadress1 = z.customeraddress
+											from
+												(select * from in_tell_tellimused_kliendid where number=@webid and x=@xkey)z
+											where kood=@newCustomerCode
+												
+												insert yld_data (kood, kaart,sisu,klass)
+												select 'CUSTOMERID', @newCustomerCode, @customerCode, 'Klient'
+
+
+												update ladu_liikumised set 
+																		kl_kood=z.kood,
+																		kl_nimi=z.nimi
+											from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+										where ladu_liikumised.number=@number
+										end
+
+								end
+							end
+
+							insert ladu_liikumised_read (number,artikkel,nimetus,kogus,kogus_saadud,rn)
+							select @number, item, linedescription,quantity,quantity,ROW_NUMBER() OVER(ORDER BY item, linedescription,quantity ASC) from in_tell_tellimused_read where number = @webid and x=@xkey
+
+							exec dbo.liikumine_laoid_split @number
+							exec dbo.kinnita_LIIK @number
+										end
+							declare @maxOrderNumber int
+							select @maxOrderNumber = max(number) from tell_tellimused where kliendi_tellimus=convert(nvarchar(max),@webid)
+								if (select count(*) from ladu_liikumised where number=@number)=1
+								begin
+
+									if isnull(@maxOrderNumber,0)!=0
+										begin
+											update tell_tellimused set suletud=1 where number=@maxOrderNumber
+
+											EXEC dbo.get_dok_number @moodul='tellimus', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+											update tell_tellimused set 
+																kliendi_tellimus=z.number,
+																aeg=z.orderDate
+											from (select * from in_tell_tellimused where number=@webid and x=@xkey)z
+											where tell_tellimused.number=@number
+
+											update tell_tellimused set 
+																	klient_kood=z.kood,
+																	klient_nimi=z.nimi,
+																	maa=z.maa,
+																	lisa_field1=@customerCode,
+																	aadress1=z.aadress1,
+																	aadress2=z.aadress2,
+																	aadress3=z.aadress3,
+																	kmregnumber=z.kmregnr,
+																	ladu=@defWebStock,
+																	tingimus='0',
+																	valuuta='EUR',
+																	kurssBV1='1'
+													from (select * from kliendid where kood=(select kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerCode)))z
+											where tell_tellimused.number=@number
+
+											INSERT tell_tellimused_read (number, rn, artikkel,nimetus, kogus, yhikuhind, summa,kmkood,konto)
+											select @number, rn, item, linedescription ,quantity,price, quantity * price,(select dbo.get_art_kmkood(item,0)),(select dbo.get_art_konto(item,0)) from in_tell_tellimused_read where number = @webid and x=@xkey
+											exec dbo.arvuta_tellimus @number
+
+											--maksājuma veids Stripe
+										end
+
+										select @sorderNumber = @number
+									
+									if (select count(*) from tell_tellimused where number=@sorderNumber)=1
+										begin
+											if (select count(*) from mr_laekumised where seletus='Pasūtījuma '+convert(nvarchar(max),@webid)+' apmaksa')>=1
+												begin
+												declare @maxPMNT int
+													select @maxPMNT = max(number) from mr_laekumised where seletus='Pasūtījuma '+convert(nvarchar(max),@webid)+' apmaksa'
+
+													if isnull(@maxPMNT,0)!=0
+														begin
+															EXEC dbo.get_dok_number @moodul='laekumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+															update mr_laekumised set
+																					seletus='Pasūtījuma '+convert(nvarchar(max),@webid)+' apmaksa',
+																					aeg=dateadd(ss,1,z.aeg),
+																					cu='XML',
+																					ts=getdate(),
+																					tasumisviis='STRIPE'
+															from (select * from tell_tellimused where number=@sorderNumber)z
+															where mr_laekumised.number=@number
+
+															insert mr_laekumised_read (number,ettemaks,klient_kood, klient_nimi,valuuta_p,kurss_p,summa_p,tasuti,kmk,etteid)
+															select @number,ettemaks,klient_kood, klient_nimi,valuuta_p,kurss_p,summa_p * (-1),tasuti * (-1),kmk,etteid from mr_laekumised_read where number=@maxPMNT
+
+															exec dbo.arvuta_laekumine @number
+															exec dbo.mr_laekumine_etteID_split @number
+															exec dbo.kinnita_LAEK @number
+														end
+
+												end
+											EXEC dbo.get_dok_number @moodul='laekumine', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+											update mr_laekumised set
+																	seletus='Pasūtījuma '+convert(nvarchar(max),@webid)+' apmaksa',
+																	aeg=dateadd(ss,1,z.aeg),
+																	cu='XML',
+																	ts=getdate(),
+																	tasumisviis='STRIPE'
+											from (select * from tell_tellimused where number=@sorderNumber)z
+											where mr_laekumised.number=@number
+
+											insert mr_laekumised_read (number,ettemaks,klient_kood, klient_nimi,valuuta_p,kurss_p,summa_p,tasuti,kmk,etteid)
+											select @number, @sorderNumber,tt.klient_kood,tt.klient_nimi,tt.valuuta,tt.kurssbv1,sum(ttr.rsum),sum(ttr.rsum),ttr.kmkood, (select max(etteid)+1 from mr_laekumised_read) from tell_tellimused_read ttr inner join tell_tellimused tt on ttr.number=tt.number where tt.number=@sorderNumber group by tt.klient_kood,tt.klient_nimi,tt.valuuta,tt.kurssbv1,ttr.kmkood
+
+											exec dbo.arvuta_laekumine @number
+											exec dbo.kinnita_LAEK @number
+										end
+
+								end
+									INSERT INTO #results VALUES ( @sorderNumber, 'ORDER', 1, 'Updated', 'Orders', @webid)
+								end
+							else
+								begin
+									INSERT INTO #results VALUES ( @number, 'ORDER', 11, 'Duplicate', 'Orders', @webid)
+								end
+						end
+					FETCH NEXT FROM documents INTO @webid
+
+			END
+			CLOSE documents
+			DEALLOCATE documents
+			--update ladu_liikumised set lisa_field1 = z.number 
+		--	from (select * )
+		--	DELETE FROM in_tell_tellimused WHERE x = @xkey
+		--	DELETE FROM in_tell_tellimused_read WHERE x = @xkey
+		--	DELETE FROM in_tell_tellimused_kliendid WHERE x = @xkey
+	end
+if @what = 'item'
+    begin
+        update in_items set x=@xkey where x is null
+    end
+--proceeding start
+if @what = 'item'
+    begin
+        DECLARE documents CURSOR FOR SELECT icode FROM in_items WITH(nolock) WHERE x = @xkey
+            OPEN documents
+            FETCH NEXT FROM documents INTO @webid
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+                    if(select count(*) from artiklid where kood = @webid) = 0
+                    BEGIN 
+                        INSERT INTO artiklid (
+							kood,
+							nimi,
+							hind_tavaline,
+							klass,
+							yhik,
+							kaal,
+							piirkonnakood,
+							cn8_kood,
+							cu,
+							looja,
+							ts_create,
+							ts,baashind,
+							tyyp
+							)
+
+                        select 
+								icode,
+								iname,
+								iunitprice,
+								iclass,
+								iunit,
+								iweight,
+								icountry,
+								icn8,
+								'XML',
+								'XML',
+								GETDATE(),
+								GETDATE(),
+								(iunitprice / ((100+isnull((select ilmakm from fin_KMkoodid where kood=(select kmk_eesti from artikliklassid where kood=iclass)),0)) / 100)),
+								1 from in_items
+                        where x = @xkey and icode = @webid
+
+                        INSERT INTO #results VALUES ( NULL, 'ITEM', 1, 'OK', 'Items', @webid)
+                    END
+                    else 
+                    BEGIN
+						update artiklid set
+											nimi=z.iname,
+											baashind=z.hind_tavaline,
+											klass=z.iclass,
+											yhik=z.iunit,
+											kaal=z.iweight,
+											piirkonnakood=z.icountry,
+											cn8_kood=z.icn8,
+											cu=z.cu,
+											ts=z.ts,
+											hind_tavaline=z.iunitprice,
+											tyyp=1
+					from (select icode, iname, iunitprice, iclass, iunit, iweight, icountry, icn8,'XML' cu, GETDATE() ts, (iunitprice / ((100+isnull((select ilmakm from fin_KMkoodid where kood=(select kmk_eesti from artikliklassid where kood=iclass)),0)) / 100) ) hind_tavaline from in_items
+                        where x = @xkey and icode = @webid) z
+
+						where artiklid.kood=z.icode
+
+                        INSERT INTO #results VALUES ( NULL, 'ITEM', 11, 'Updated', 'Items', @webid)
+                    END
+
+                FETCH NEXT FROM documents INTO @webid
+            END
+            CLOSE documents
+            DEALLOCATE documents
+    end
+--proceeding end
+if @what = 'invoice'
+    begin
+        update in_mr_arved set x=@xkey where x is null and session_id=@session_id
+		update in_mr_arved_read set 
+									x=@xkey,
+									session_id=@session_id
+		where number in (select number from in_mr_arved where x=@xkey and session_id=@session_id) and x is null and session_id is null
+    end
+
+if @what = 'invoice'
+    begin
+	declare @InvoiceNumber nvarchar(32), @invoiceDate datetime, @salesOrder nvarchar(32), @customerId nvarchar(32), @directoSalesOrderNumber int
+
+        DECLARE invoice CURSOR FOR SELECT number,invoiceDate,orderNumber,CustomerId from in_mr_arved where x=@xkey and session_id=@session_id
+		OPEN invoice
+            FETCH NEXT FROM invoice INTO @InvoiceNumber, @invoiceDate,@salesOrder,@customerId
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+			select @customerId = kaart from yld_data where kood='CUSTOMERID' and					klass='Klient' and sisu=convert(nvarchar(max),@customerId)
+				if (select count(*) from mr_arved where lisa_field1=convert(nvarchar(max),@InvoiceNumber)) >=1
+					begin
+						INSERT INTO #results VALUES ( NULL, 'Invoice', 11, 'Duplicate', 'Invoices', @InvoiceNumber)
+					end
+				else
+					begin
+						if (select count(*) from tell_tellimused where kliendi_tellimus=convert(nvarchar(max),@salesOrder))=0
+							begin
+								INSERT INTO #results VALUES ( NULL, 'Invoice', 11, 'Order '+convert(nvarchar(max),@salesOrder)+' not exsists', 'Invoices', @InvoiceNumber)
+							end
+						else
+							begin
+								select @directoSalesOrderNumber = number from tell_tellimused where kliendi_tellimus=convert(nvarchar(max),@salesOrder)
+									
+									if (select count(*) from mr_laekumised where number in (select number from mr_laekumised_read where ettemaks=@directoSalesOrderNumber) and isnull(kinnitatud,0)=1)=0
+										begin
+											INSERT INTO #results VALUES ( NULL, 'Invoice', 11, 'Payment for order '+convert(nvarchar(max),@salesOrder)+' not received', 'Invoices', @InvoiceNumber)
+										end
+									else
+										begin
+											
+
+											select @defCustomer = param1, @defStock=param2 from tr_params where tyyp='xmlcore' and kood='order'
+
+											if (select klient_kood from tell_tellimused where number=@directoSalesOrderNumber)!=isnull(@customerId,@defCustomer)
+												begin
+													INSERT INTO #results VALUES ( NULL, 'Invoice', 11, 'Order '+convert(nvarchar(max),@salesOrder)+' contain different customer', 'Invoices', @InvoiceNumber)
+												end
+											else
+												begin
+													EXEC dbo.get_dok_number @moodul='arve', @seeria='DOC2024', @NUMBER = NULL, @cu='xmlcore', @aeg=@ag, @keel = 'default', @num =@number OUTPUT, @err = @err OUTPUT
+
+													update mr_arved set lisa_field1=convert(nvarchar(max),@InvoiceNumber) where number=@number
+													INSERT INTO #results VALUES ( NULL, 'Invoice', 1, 'OK', 'Invoices', @InvoiceNumber)
+
+													update mr_arved set
+														tingimus=isnull(z.tingimus,'0'),
+														maa=z.maa,
+														klient_kood=z.klient_kood,
+														klient_nimi=z.klient_nimi,
+														aadress1=z.aadress1,
+														aadress2=z.aadress2,
+														aadress3=z.aadress3,
+														myyja=iif(isnull(z.myyja,'')='','XML',z.myyja),
+														ladu=z.ladu,
+														kmregnumber=z.kmregnumber,
+														telefon=z.telefon,
+														asumaa=z.asumaa,
+														ettemaks=z.ettemaks,
+														klientnimi_lahetusel=z.klient_nimi_lahetusel,
+														lahetusaadress1=z.lahetusaadress1,
+														lahetusaadress2=z.lahetusaadress3,
+														lahetusaadress3=z.lahetusaadress3,
+														muudaladu=1,
+														valuuta='EUR',
+														kurssBV1=1,
+														kommentaar=z.kommentaar,
+														tellimusenr=@directoSalesOrderNumber,
+														klienditellimus=@salesOrder,
+														aeg=@invoiceDate
+														from
+													(select * from tell_tellimused where number=@directoSalesOrderNumber) z
+													where mr_arved.number=@number
+
+													update mr_arved set ettemaks=isnull((select sum(summa_p) from mr_laekumised_read where mr_laekumised_read.ettemaks=@directoSalesOrderNumber),0) where number=@number
+													update mr_arved set aeg2=cast(dateadd(d,isnull((select netopaevi from mr_tasumistingimused where kood=mr_arved.tingimus),0),mr_arved.aeg)as date) where number=@number
+
+													declare @maa int
+													select @maa = maa from kliendid where kood=isnull(@customerId,@defCustomer)
+													insert mr_arved_read (number, kogus,artikkel,seletus, hind, summa, kmk, konto)
+													select @number,quantity,item,linedescription,price,price * quantity, dbo.get_art_kmkood(item,@maa),dbo.get_art_konto(item,@maa) from in_mr_arved_read where session_id=@session_id and x=@xkey
+
+													select @ts
+
+													exec dbo.mr_arved_renum @number
+													exec dbo.arvuta_arve @number
+													exec dbo.kinnita_arve @number,'XML',@ts
+
+												end
+
+										end
+
+
+							end
+						
+					end
+
+
+			    FETCH NEXT FROM invoice INTO @InvoiceNumber, @invoiceDate,@salesOrder,@customerId
+            END
+            CLOSE invoice
+            DEALLOCATE invoice
+    end
+
+
+
+	select * from in_mr_arved
+
+IF ( SELECT COUNT(*) FROM #results ) = 0
+	INSERT INTO #results VALUES ( NULL, 'GENERAL ERROR', 99, 'No processable XML data found for document: ' + @what, NULL, NULL ) 
+/* results out */
+SELECT @result1 =
+	( SELECT result AS "@type", descr AS "@desc", number AS "@docid", ext_id AS "@ext_id", tyyp AS "@doctype", submittype AS "@submit"
+FROM #results FOR XML PATH ( 'result' ) )
+SET @result2 = '<?xml version="1.0" encoding="UTF-8"?><results>' + CONVERT( nvarchar(max), @result1 ) + '</results>'
+
+IF EXISTS ( SELECT result FROM #results WHERE result != 0 )
+	INSERT INTO in_xml_errors ( ts_inserted, ts_processed, what, dat_xml ) VALUES ( @ts, GETDATE(), @what, @result2 )
+
+IF @test != 1
+	SELECT @result2
+
+/* test results out */
+ELSE
+BEGIN
+	SET @result2 = '<html></br>&ltresults></br>' + REPLACE( REPLACE( CONVERT( nvarchar(max), @result1 ), '<', '&lt' ), '/>&ltresult', '/> </br> &ltresult' ) + '</br>&lt/results></br></br>'
+	SELECT @result2 + @testresults + '</html>'
+END
+
+
+
+DROP TABLE #results
+DROP TABLE #output
+
+--INSERT INTO in_log_analyze VALUES ( @ts, getdate(), 'bhg_item', 'proc', @webid, 'END', 999 )
+
+
+
+
+
+GO
