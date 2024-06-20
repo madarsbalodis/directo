@@ -1,0 +1,195 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER procedure [dbo].[int_hooldus_klient_royalty] 
+    @aeg1 datetime, 
+    @aeg2 datetime, 
+    @item nvarchar(32) 
+as 
+
+declare @xKEY nvarchar(max)
+DECLARE @X INT
+select @xKEY = convert(nvarchar(max),getdate(),121)
+
+if not(exists((select 1 from INFORMATION_SCHEMA.tables where table_name='royalty_report_results')))
+begin
+    create table dbo.royalty_report_results (
+        x nvarchar(64),
+        item nvarchar(32),
+        item_name nvarchar(255),
+        purchase_count_1 decimal(15,2),
+        purchase_date_1 datetime,
+        purchase_count_period decimal(15,2),
+        purchase_total decimal(15,2),
+        depr_count_period decimal(15,2),
+        depr_total decimal(15,2),
+        purchase_count_3 decimal(15,2),
+        contract_start_date datetime,
+        contract_end_date datetime,
+        sales_period decimal(15,2),
+        sales_total decimal(15,2),
+        slevel_at_start decimal(15,2),
+        slevel_at_end decimal(15,2),
+        prepayment_paid decimal(15,2),
+        royalty_before decimal(15,2),
+        royalty_in_period decimal(15,2),
+        report_start_date datetime,
+        report_end_date datetime
+    )
+end
+
+if not(exists((select 1 from INFORMATION_SCHEMA.tables where table_name='royalty_report_results_productions')))
+begin
+    create table dbo.royalty_report_results_productions (
+        x nvarchar(64),
+        item nvarchar(32),
+        production_time nvarchar(3),
+        production_date datetime,
+        stockid int,
+        piece_price decimal(15,2),
+        piece_proc decimal(15,2),
+        report_start_date datetime,
+        report_end_date datetime,
+        qty decimal(15,2),
+        soldQty decimal(15,0),
+        soldQtybefore decimal(15,0),
+        qtyBeginPer decimal(15,2),
+        qtyEndPer decimal(15,2),
+        complPeriod decimal(15,2)
+    )
+end
+
+declare prices cursor for 
+select kood from artiklid where kood in 
+    (select kaart from yld_data where kood='ROYALTY' and klass='Artikkel' and sisu=N'JĀ')
+open prices
+FETCH NEXT FROM prices INTO @ITEM
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    select kood, nimi into #t1 from artiklid where kood = @item
+    select kood, klass, cast('' as datetime) value, @item as item into #t2 
+    from yld_data_tyybid where klass='ARTIKKEL' and kood in ('C_END','C_start')
+
+    update #t2 
+    set value=cast(convert(date,
+        (select TOP 1 sisu from yld_data where klass=#t2.klass and kood=#t2.kood and kaart=@item),104) as datetime)
+
+    select ladu_sissetulekud.number, artikkel, kogus, ladu_sissetulekud.lisa_field1, 
+           ladu_sissetulekud.aeg, laoid into #t3 
+    from ladu_sissetulekud_read 
+    left join ladu_sissetulekud on ladu_sissetulekud.number=ladu_sissetulekud_read.number 
+    where artikkel=@item
+
+    select ladu_mahakandmised.number, artikkel, kogus, ladu_mahakandmised.aeg into #t4 
+    from ladu_mahakandmised_read 
+    left join ladu_mahakandmised on ladu_mahakandmised.number=ladu_mahakandmised_read.number 
+    where artikkel=@item
+
+    SELECT *, 
+        cast(isnull(replace(replace(
+            (SELECT TOP 1 SISU FROM YLD_DATA WHERE KOOD='tiraza'+#T3.lisa_field1 AND KAART=@ITEM),',','.'),' ',''),0) as decimal(15,2)) piecePrice,
+        cast(replace(replace(
+            (SELECT TOP 1 param FROM YLD_DATA WHERE KOOD='tiraza'+#T3.lisa_field1 AND KAART=@ITEM),',','.'),' ','') as decimal(15,2)) pieceProc,
+        isnull((select sum(kogus) from int_artikli_ajalugu where artikkel=@item 
+                and number in (select mr_arved.number from mr_arved_read 
+                               inner join mr_arved on mr_arved.number=mr_arved_read.number 
+                               where artikkel=@item and cast(mr_arved.aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date) 
+                               and isnull(kinnitatud,0)=1 and isnull(muudaladu,0)=1 ) 
+                and laoid=#t3.laoid and tyyp='ARVE') * (-1),0) soldInPeriod,
+        isnull((select sum(kogus) from int_artikli_ajalugu where artikkel=@item 
+                and number in (select ladu_mahakandmised_read.number from ladu_mahakandmised_read 
+                               inner join ladu_mahakandmised on ladu_mahakandmised.number=ladu_mahakandmised_read.number 
+                               where artikkel=@item and cast(ladu_mahakandmised.aeg as date) between cast(@aeg1 as date) and cast(@aeg2 as date) 
+                               and isnull(kinnitatud,0)=1 ) 
+                and laoid=#t3.laoid and tyyp='MAHA'),0) complInPeriod,
+        isnull((select sum(kogus) from int_artikli_ajalugu where artikkel=@item 
+                and number in (select mr_arved.number from mr_arved_read 
+                               inner join mr_arved on mr_arved.number=mr_arved_read.number 
+                               where artikkel=@item and cast(mr_arved.aeg as date) < cast(@aeg1 as date) 
+                               and isnull(kinnitatud,0)=1 and isnull(muudaladu,0)=1 ) 
+                and laoid=#t3.laoid) * (-1),0) SoldBefore,
+        cast(0 as decimal(15,2)) royaltyBefore,
+        cast(0 as decimal(15,2)) royaltyInPeriod,
+        isnull((select sum(kogus) from int_artikli_ajalugu where kood=@item and cast(aeg as date) < cast(@aeg1 as date) and laoid =#t3.laoid),0) as levelBefor,
+        isnull((select sum(kogus) from int_artikli_ajalugu where kood=@item and cast(aeg as date) <= cast(@aeg2 as date) and laoid =#t3.laoid),0) as levelafter
+        into #t5
+    FROM #T3
+
+    update #t5 
+    set royaltyBefore= (piecePrice * (pieceProc / 100)) * SoldBefore, 
+        royaltyInPeriod= (piecePrice * (pieceProc / 100)) * soldInPeriod
+
+    insert royalty_report_results_productions (x, item, production_time, piece_price, piece_proc, 
+                                               report_start_date, report_end_date, qty, soldqty, qtyBeginPer, 
+                                               qtyEndPer, complPeriod, soldQtybefore)
+    select @xkey, artikkel, lisa_field1, piecePrice, pieceProc, @aeg1, @aeg2, sum(kogus), sum(soldInPeriod), 
+           sum(levelBefor), sum(levelafter), sum(complInPeriod), sum(soldBefore) 
+    from #t5 
+    group by artikkel, lisa_field1, piecePrice, pieceProc
+
+    insert royalty_report_results (x, item, item_name, purchase_count_1, purchase_date_1, slevel_at_start, 
+                                   slevel_at_end, purchase_count_period, purchase_total, depr_count_period, 
+                                   depr_total, contract_start_date, contract_end_date, sales_period, 
+                                   sales_total, prepayment_paid, royalty_before, royalty_in_period, 
+                                   report_start_date, report_end_date)
+    select 
+        @xKEY,
+        kood,
+        nimi, 
+        isnull((select sum(kogus) from #t3 where lisa_field1='1' and artikkel=@item),0),
+        NULL, --(select aeg from #t3 where lisa_field1='1' and artikkel=@item),
+        (select dbo.get_laoseis_vaba(1, @item,'GAL',NULL,NULL,NULL,@aeg1,NULL)),
+        (select dbo.get_laoseis_vaba(1, @item,'GAL',NULL,NULL,NULL,@aeg2,NULL)),
+        (select sum(kogus) from #t3 where lisa_field1!='1' and artikkel=@item and aeg between @aeg1 and @aeg2),
+        (select sum(kogus) from #t3 where artikkel=@item),
+        isnull((select sum(kogus) from #t4 where artikkel=@item and aeg between @aeg1 and @aeg2),0),
+        isnull((select sum(kogus) from #t4 where artikkel=@item),0),
+        iif(isnull((select value from #t2 where item=@item and kood='C_START'),'')='',NULL,(select TOP 1 value from #t2 where item=@item and kood='C_START')),
+        iif(isnull((select value from #t2 where item=@item and kood='C_END'),'')='',NULL,(select TOP 1 value from #t2 where item=@item and kood='C_END')),
+        (select sum(kogus) from mr_arved_read a left join mr_arved b on a.number=b.number 
+            where b.aeg between @aeg1 and @aeg2 and isnull(b.kinnitatud,0)=1 and a.artikkel=@item and isnull(muudaladu,0)=1),
+        (select sum(kogus) from mr_arved_read a left join mr_arved b on a.number=b.number 
+            where isnull(b.kinnitatud,0)=1 and a.artikkel=@item and isnull(muudaladu,0)=1),
+        isnull((select TOP 1 summa from or_arved_read where tyyp='ROYALTY' and kogus =1 and artikkel=@item),0),
+        isnull((select sum(royaltyBefore) from #t5),0),
+        isnull((select sum(royaltyinperiod) from #t5),0),
+        @aeg1 aeg1,
+        @aeg2 aeg2
+    from #t1
+
+    drop table #t1
+    drop table #t2
+    drop table #t3
+    drop table #t4
+    drop table #t5
+
+    set @x=@x+1
+    FETCH NEXT FROM prices INTO @ITEM
+END
+CLOSE prices
+DEALLOCATE prices
+
+select 
+    item [Grāmata],
+    purchase_count_1 [1. tirāža],
+    purchase_count_period [Papildus tirāža periodā],
+    purchase_total [Kopējā tirāža],
+    depr_count_period [Reprezentācijas eksemplāri periodā],
+    depr_total [Reprezentācijas eksemplāri kopā],
+    contract_start_date [Līguma sākuma datums],
+    contract_end_date [Līguma beigu datums],
+    sales_period [Pārdots periodā],
+    sales_total [Pārdots kopā],
+    prepayment_paid [Samaksāta priekšapmaksa],
+    royalty_before [Iepriekš aprēķinātā <br /> priekšapmaksa],
+    royalty_in_period [Periodā aprēķinātā <br /> priekšapmaksa],
+    slevel_at_start [Noliktavas atlikums uz <br /> perioda sākumu],
+    slevel_at_end [Noliktavas atlikums uz <br /> perioda beigām],
+    N'<a href="yld_print.asp?1=1&param0='+convert(nvarchar(max),@xKEY)+'&param1='+item+'&row=5252&moodul=int_hooldus_klient_ROYALTY_PRINT&print=no&aspdf=1&pdfname=royalty_report&mida=xsl&1=1" target="blank_">PDF</a>' as ' ',
+    N'<a href="yld_print.asp?1=1&param0='+convert(nvarchar(max),@xKEY)+'&param1='+item+N'&row=5252&moodul=int_hooldus_klient_ROYALTY_PRINT&print=no&mida=xsl&1=1" target="blank_">Skatīt</a>' as ' '
+from royalty_report_results 
+where x=@xKEY
+
+GO
