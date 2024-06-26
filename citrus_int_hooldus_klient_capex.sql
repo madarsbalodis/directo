@@ -4,9 +4,10 @@ SET QUOTED_IDENTIFIER ON
 GO
 
 ALTER PROCEDURE [dbo].[int_hooldus_klient_capex]
-    @projekt NVARCHAR,
+
     @aeg1 DATETIME,
-    @aeg2 DATETIME
+    @aeg2 DATETIME,
+    @projekt NVARCHAR(MAX) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -43,41 +44,117 @@ BEGIN
         SELECT kood AS project
         FROM projektid
         WHERE master LIKE 'CAPEX%'
+          AND (@projekt IS NULL OR kood = @projekt) -- Filter by @projekt if provided
     ) AS capex_projects
     CROSS JOIN
     (
         SELECT DISTINCT projekt AS dproject
         FROM fin_eelarved_read
         WHERE number IN (40020, 40019) AND ISNULL(projekt, '') != ''
+          AND (@projekt IS NULL OR projekt = @projekt) -- Filter by @projekt if provided
     ) AS fin_projects;
 
     -- Update temporary table with additional information
     UPDATE #projects
-    SET projectMasterCount = (SELECT COUNT(*) FROM projektid WHERE master = first_stproj),
-        pname = (SELECT nimi FROM projektid WHERE kood = first_stproj),
-        contr_summa = ISNULL((SELECT SUM(summa) FROM lepingud_read WHERE projekt = first_stproj), 0),
-        responsible = (SELECT nimi FROM kasutajad WHERE kood = (SELECT juht FROM projektid WHERE kood = first_stproj)),
-        edate = (SELECT CONVERT(NVARCHAR(MAX), aeg2, 104) FROM projektid WHERE kood = first_stproj),
-        sdate = (SELECT CONVERT(NVARCHAR(MAX), aeg1, 104) FROM projektid WHERE kood = first_stproj);
+    SET contr_summa = ISNULL((
+        SELECT SUM(COALESCE(l.kokku_myyk, lr.summa, 0))
+        FROM lepingud l
+        LEFT JOIN lepingud_read lr ON l.number = lr.number
+        WHERE l.projekt = #projects.first_stproj OR lr.projekt = #projects.first_stproj
+    ), 0);
 
     -- Generate XML output
     SELECT
-        SUBSTRING(CONVERT(NVARCHAR(MAX), YEAR(@aeg1)), 3, 2) AS a,
-        (SELECT * ,
-            ISNULL((SELECT SUM(summa) FROM lepingud_read WHERE projekt = projektid.kood), 0) AS contr_summa,
-            (SELECT * FROM fin_eelarved_read WHERE projekt = projektid.kood AND tyyp LIKE 'prog_%' AND tyyp LIKE '%' + SUBSTRING(CONVERT(NVARCHAR(MAX), YEAR(@aeg1)), 3, 2) + '%' FOR XML PATH('row'), TYPE, ELEMENTS) AS rows,
-            (SELECT * FROM fin_eelarved_read WHERE projekt = projektid.kood AND tyyp LIKE '%PB%' AND tyyp LIKE '%' + CONVERT(NVARCHAR(MAX), YEAR(@aeg1)) + '%' FOR XML PATH('row'), TYPE, ELEMENTS) AS rowsact,
-            (SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa FROM or_arved_read LEFT JOIN or_arved ON or_arved.number = or_arved_read.number WHERE ISNULL(Or_arved_read.projekt, Or_arved.projekt) = projektid.kood) AS invoicesum
-        FROM projektid WHERE master IN (SELECT kood FROM projektid WHERE kood LIKE 'CAPEX%') FOR XML PATH('capex_master_project'), TYPE, ELEMENTS) AS capex_master_projects,
-        (SELECT *,
-            ISNULL((SELECT SUM(summa) FROM lepingud_read WHERE projekt = projektid.kood), 0) AS contr_summa,
-            (SELECT * FROM fin_eelarved_read WHERE projekt = projektid.kood AND tyyp LIKE 'prog_%' AND tyyp LIKE '%' + SUBSTRING(CONVERT(NVARCHAR(MAX), YEAR(@aeg1)), 3, 2) + '%' FOR XML PATH('row'), TYPE, ELEMENTS) AS rows,
-            (SELECT * FROM fin_eelarved_read WHERE projekt = projektid.kood AND tyyp LIKE '%PB%' AND tyyp LIKE '%' + CONVERT(NVARCHAR(MAX), YEAR(@aeg1)) + '%' FOR XML PATH('row'), TYPE, ELEMENTS) AS rowsact,
-            (SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa FROM or_arved_read LEFT JOIN or_arved ON or_arved.number = or_arved_read.number WHERE ISNULL(Or_arved_read.projekt, Or_arved.projekt) = projektid.kood) AS invoicesum
-        FROM projektid WHERE master IN (SELECT kood FROM projektid WHERE master IN (SELECT kood FROM projektid WHERE kood LIKE 'CAPEX%')) FOR XML PATH('capex_project'), TYPE, ELEMENTS) AS capex_projects,
-        (SELECT *,
-            (SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa FROM or_arved_read LEFT JOIN or_arved ON or_arved.number = or_arved_read.number WHERE ISNULL(Or_arved_read.projekt, Or_arved.projekt) = #projects.first_stproj) AS invoicesum
-        FROM #projects WHERE budget_proj_master IS NOT NULL FOR XML PATH('project'), TYPE, ELEMENTS) AS projects
+        FORMAT(@aeg1, 'dd.MM.yyyy') AS start_date,
+        FORMAT(@aeg2, 'dd.MM.yyyy') AS end_date,
+        (
+            SELECT *,
+                ISNULL((
+                    SELECT SUM(COALESCE(l.kokku_myyk, lr.summa, 0))
+                    FROM lepingud l
+                    LEFT JOIN lepingud_read lr ON l.number = lr.number
+                    WHERE l.projekt = projektid.kood OR lr.projekt = projektid.kood
+                ), 0) AS contr_summa,
+                (
+                    SELECT * FROM fin_eelarved_read
+                    WHERE projekt = projektid.kood
+                    AND tyyp LIKE 'prog_%'
+                    AND tyyp LIKE '%' + SUBSTRING(CONVERT(NVARCHAR(MAX), YEAR(@aeg1)), 3, 2) + '%'
+                    FOR XML PATH('row'), TYPE, ELEMENTS
+                ) AS rows,
+                (
+                    SELECT * FROM fin_eelarved_read
+                    WHERE projekt = projektid.kood
+                    AND tyyp LIKE '%PB%'
+                    AND tyyp LIKE '%' + CONVERT(NVARCHAR(MAX), YEAR(@aeg1)) + '%'
+                    FOR XML PATH('row'), TYPE, ELEMENTS
+                ) AS rowsact,
+                (
+                    SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa 
+                    FROM or_arved_read 
+                    INNER JOIN or_arved ON or_arved.number = or_arved_read.number 
+                    WHERE (ISNULL(Or_arved_read.projekt, Or_arved.projekt) = projektid.kood
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE projektid.kood + '.%'
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE projektid.kood + '/%')
+                      AND or_arved.kinnitatud = 1
+                ) AS invoicesum
+            FROM projektid
+            WHERE master IN (SELECT kood FROM projektid WHERE kood LIKE 'CAPEX%')
+              AND (@projekt IS NULL OR kood = @projekt) -- Filter by @projekt if provided
+            FOR XML PATH('capex_master_project'), TYPE, ELEMENTS
+        ) AS capex_master_projects,
+        (
+            SELECT *,
+                ISNULL((
+                    SELECT SUM(COALESCE(l.kokku_myyk, lr.summa, 0))
+                    FROM lepingud l
+                    LEFT JOIN lepingud_read lr ON l.number = lr.number
+                    WHERE l.projekt = projektid.kood OR lr.projekt = projektid.kood
+                ), 0) AS contr_summa,
+                (
+                    SELECT * FROM fin_eelarved_read
+                    WHERE projekt = projektid.kood
+                    AND tyyp LIKE 'prog_%'
+                    AND tyyp LIKE '%' + SUBSTRING(CONVERT(NVARCHAR(MAX), YEAR(@aeg1)), 3, 2) + '%'
+                    FOR XML PATH('row'), TYPE, ELEMENTS
+                ) AS rows,
+                (
+                    SELECT * FROM fin_eelarved_read
+                    WHERE projekt = projektid.kood
+                    AND tyyp LIKE '%PB%'
+                    AND tyyp LIKE '%' + CONVERT(NVARCHAR(MAX), YEAR(@aeg1)) + '%'
+                    FOR XML PATH('row'), TYPE, ELEMENTS
+                ) AS rowsact,
+                (
+                    SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa 
+                    FROM or_arved_read 
+                    INNER JOIN or_arved ON or_arved.number = or_arved_read.number 
+                    WHERE (ISNULL(Or_arved_read.projekt, Or_arved.projekt) = projektid.kood
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE projektid.kood + '.%'
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE projektid.kood + '/%')
+                      AND or_arved.kinnitatud = 1
+                ) AS invoicesum
+            FROM projektid
+            WHERE master IN (SELECT kood FROM projektid WHERE master IN (SELECT kood FROM projektid WHERE kood LIKE 'CAPEX%'))
+              AND (@projekt IS NULL OR master = @projekt) -- Filter by @projekt if provided
+            FOR XML PATH('capex_project'), TYPE, ELEMENTS
+        ) AS capex_projects,
+        (
+            SELECT *,
+                (
+                    SELECT ISNULL(SUM(or_arved_read.summa), 0) AS summa 
+                    FROM or_arved_read 
+                    INNER JOIN or_arved ON or_arved.number = or_arved_read.number 
+                    WHERE (ISNULL(Or_arved_read.projekt, Or_arved.projekt) = #projects.first_stproj
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE #projects.first_stproj + '.%'
+                           OR ISNULL(Or_arved_read.projekt, Or_arved.projekt) LIKE #projects.first_stproj + '/%')
+                      AND or_arved.kinnitatud = 1
+                ) AS invoicesum
+            FROM #projects
+            WHERE budget_proj_master IS NOT NULL
+              AND (@projekt IS NULL OR budget_proj_master = @projekt) -- Filter by @projekt if provided
+            FOR XML PATH('project'), TYPE, ELEMENTS
+        ) AS projects
     FOR XML PATH('document'), TYPE, ELEMENTS;
 
     -- Clean up temporary table
