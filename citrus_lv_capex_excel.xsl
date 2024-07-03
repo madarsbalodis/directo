@@ -43,10 +43,15 @@
                     <Interior ss:Color="#203764" ss:Pattern="Solid"/>
                     <Protection ss:Protected="0"/>
                 </Style>
-                <Style ss:ID="s77">
+                <!-- <Style ss:ID="s77">
                     <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
                     <Font ss:FontName="Calibri" x:CharSet="186" x:Family="Swiss" ss:Color="#FFFFFF"
                         ss:Bold="1"/>
+                    <Interior ss:Color="#203764" ss:Pattern="Solid"/>
+                </Style> -->
+                <Style ss:ID="s77">
+                    <Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/>
+                    <Font ss:FontName="Calibri" x:CharSet="186" x:Family="Swiss" ss:Color="#FFFFFF" ss:Bold="1"/>
                     <Interior ss:Color="#203764" ss:Pattern="Solid"/>
                 </Style>
                 <Style ss:ID="s78">
@@ -62,12 +67,32 @@
                     <Interior ss:Color="#83CCEB" ss:Pattern="Solid"/>
                     <NumberFormat ss:Format="@"/>
                 </Style>
-                <Style ss:ID="s82">
+                <!-- <Style ss:ID="s82">
                     <Font ss:FontName="Aptos Narrow" x:Family="Swiss" ss:Size="11"
                         ss:Color="#000000" ss:Bold="1"/>
                     <Interior ss:Color="#83CCEB" ss:Pattern="Solid"/>
+                </Style> -->
+                <Style ss:ID="s82">
+                    <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+                    <Font ss:FontName="Aptos Narrow" x:Family="Swiss" ss:Size="11" ss:Color="#000000" ss:Bold="1"/>
+                    <Interior ss:Color="#83CCEB" ss:Pattern="Solid"/>
                 </Style>
+                <!-- <Style ss:ID="s83">
+                    <Font ss:FontName="Calibri" x:Family="Swiss" ss:Color="#000000" ss:Bold="1"/>
+                    <Interior ss:Color="#E6F2FF" ss:Pattern="Solid"/>
+                    <NumberFormat ss:Format="#,##0.00"/>
+                </Style> -->
+                <Style ss:ID="s83">
+                    <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+                    <Font ss:FontName="Calibri" x:Family="Swiss" ss:Color="#000000" ss:Bold="1"/>
+                    <Interior ss:Color="#E6F2FF" ss:Pattern="Solid"/>
+                    <NumberFormat ss:Format="#,##0.00"/>
+                </Style>
+                <!-- <Style ss:ID="s84">
+                    <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
+                </Style> -->
                 <Style ss:ID="s84">
+                    <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
                     <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
                 </Style>
             </Styles>
@@ -94,6 +119,42 @@
                         <Cell ss:StyleID="s77"><Data ss:Type="String">Neatvērtais</Data></Cell>
                         <Cell ss:StyleID="s77"><Data ss:Type="String">Ieguldītais</Data></Cell>
                         <Cell ss:StyleID="s77"><Data ss:Type="String">Atlikums</Data></Cell>
+                    </Row>
+                    <!-- work in progress mb -->
+                    <Row>
+                        <Cell ss:StyleID="s83"><Data ss:Type="String"></Data></Cell>
+                        <Cell ss:StyleID="s83"><Data ss:Type="String"></Data></Cell>
+                        <Cell ss:StyleID="s83"><Data ss:Type="String">Kopā</Data></Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="sum(/documents/document/capex_master_projects/capex_master_project/rows/row/baas1deebet)"/>
+                            </Data>
+                        </Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="sum(/documents/document/capex_master_projects/capex_master_project/rowsact/row/baas1deebet)"/>
+                            </Data>
+                        </Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="sum(/documents/document/capex_master_projects/capex_master_project/contr_summa) + sum(/documents/document/capex_projects/capex_project/contr_summa)"/>
+                            </Data>
+                        </Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="(sum(/documents/document/capex_master_projects/capex_master_project/rowsact/row/baas1deebet) + sum(/documents/document/capex_projects/capex_project/rowsact/row/baas1deebet)) - (sum(/documents/document/capex_master_projects/capex_master_project/contr_summa) + sum(/documents/document/capex_projects/capex_project/contr_summa))"/>
+                            </Data>
+                        </Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="sum(/documents/document/capex_master_projects/capex_master_project/invoicesum) + sum(/documents/document/capex_projects/capex_project/invoicesum)"/>
+                            </Data>
+                        </Cell>
+                        <Cell ss:StyleID="s83">
+                            <Data ss:Type="Number">
+                                <xsl:value-of select="(sum(/documents/document/capex_master_projects/capex_master_project/contr_summa) + sum(/documents/document/capex_projects/capex_project/contr_summa)) - (sum(/documents/document/capex_master_projects/capex_master_project/invoicesum) + sum(/documents/document/capex_projects/capex_project/invoicesum))"/>
+                            </Data>
+                        </Cell>
                     </Row>
                     <xsl:for-each select="/documents/document/capex_master_projects/capex_master_project">
                         <xsl:variable name="capexMasterProject" select="kood"/>
