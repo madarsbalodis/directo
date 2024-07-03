@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- algu lapiņas no coats, 16.11.2020, marija -->
+<xsl:stylesheet version="1.0"
+xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+xmlns:fo="http://www.w3.org/1999/XSL/Format"
+xmlns:msxsl="urn:schemas-microsoft-com:xslt"
+xmlns:js="urn:formulas"
+exclude-result-prefixes="msxsl js fo">
+<xsl:output method="html"/>
+<xsl:template match="/">
+<head>
+<link href="https://fonts.googleapis.com/css?family=Arsenal|Cuprum|Open+Sans+Condensed:300|Ubuntu+Condensed&amp;subset=cyrillic,cyrillic-ext,latin-ext" rel="stylesheet" />
+</head>
+   <xsl:variable name="item_per_first_page">6</xsl:variable>
+   <xsl:variable name="item_per_other_pages">6</xsl:variable>
+   <xsl:variable name="chars_per_row">25</xsl:variable>
+   
+    <xsl:variable name="avansi">
+        <avansi>
+    <xsl:for-each select="//tasumised/tasumine/valemid/valem[@klass='AVANSS']">
+        <avanss>
+        <persona><xsl:value-of select="../../persoon"/></persona>
+        <summa><xsl:value-of select="format-number(neto, '0.00')"/></summa>
+        </avanss>
+    </xsl:for-each>
+    </avansi>
+            </xsl:variable>
+               <xsl:variable name="ietur">
+       <ieturejumi>
+            <xsl:for-each select="/documents/document/valemid/valem[@klass='ATVILKUMS']"> <!--  <xsl:for-each select="//tasumised/tasumine/valemid/valem[@klass='ATVILKUMS']">-->
+        <ieturejums>
+        <persona><xsl:value-of select="../../persoon"/></persona>
+        <summa><xsl:value-of select="format-number(neto, '0.00')"/></summa>
+        </ieturejums>
+        
+    </xsl:for-each>
+    </ieturejumi>
+            </xsl:variable>
+
+
+    
+    
+   <xsl:variable name="pages_count">
+    <xsl:choose>
+     <xsl:when test="(/documents/document/ridu&lt;$item_per_first_page) or (/documents/document/ridu=$item_per_first_page)">1</xsl:when>
+     <xsl:otherwise><xsl:value-of select="ceiling(((/documents/document/ridu)-($item_per_first_page)) div $item_per_other_pages)+1" /></xsl:otherwise>
+    </xsl:choose>
+   </xsl:variable>
+    <style>
+    .main table tr td {font-size:8pt; font-family:Arsenal;}
+           .pbreak {
+    page-break-after:always;
+    }
+        </style> 
+    <html>
+    
+    
+        <head>
+            <title>Algas lapiņas</title>
+        </head>
+        <body>
+        <!--<table>
+        <xsl:for-each select="msxsl:node-set($avansi)/avansi/avanss">
+        <tr>
+            <td><xsl:value-of select="persona"/></td>
+             <td><xsl:value-of select="summa"/></td>
+        </tr>
+        </xsl:for-each>
+        </table>-->
+            <table width="660" cellpadding="0" cellspacing="0" align="center" class="main">
+  <xsl:for-each select="/documents/document">
+      <xsl:variable name="userid" select="persoon"/>
+                <tr>
+      <td style="font-size:10pt; font-family:Arsenal;border-left:1px solid black; border-top:1px solid black; border-right:1px solid black;" width="330">
+          Aprēķina lapa par <xsl:value-of select="substring(/documents/aruande_parameetrid/aeg2, 7,4)"/>. gada <xsl:variable name="menesis" select="substring(/documents/aruande_parameetrid/aeg2, 4,2)"/>
+          <xsl:variable name="menesis_vardiem">
+          <xsl:choose>
+            <xsl:when test="$menesis='01'">janvāri</xsl:when>
+            <xsl:when test="$menesis='02'">februāri</xsl:when>
+              <xsl:when test="$menesis='03'">martu</xsl:when>
+              <xsl:when test="$menesis='04'">aprīli</xsl:when>
+              <xsl:when test="$menesis='05'">maiju</xsl:when>
+              <xsl:when test="$menesis='06'">jūniju</xsl:when>
+              <xsl:when test="$menesis='07'">jūliju</xsl:when>
+              <xsl:when test="$menesis='08'">augustu</xsl:when>
+              <xsl:when test="$menesis='09'">septembri</xsl:when>
+              <xsl:when test="$menesis='10'">oktobri</xsl:when>
+              <xsl:when test="$menesis='11'">novembri</xsl:when>
+              <xsl:when test="$menesis='12'">decembri</xsl:when>
+          </xsl:choose>
+          </xsl:variable>
+          <xsl:value-of select="$menesis_vardiem"/>,&#160;<xsl:value-of select="//persoon_andmed[kood=$userid]/osakond_nimi"/></td>
+      <td style="border-right:1px solid black; border-top:1px solid black; font-size:10pt; font-family:Arsenal;" width="330">
+		<b><xsl:value-of select="/documents/footer/firma_nimi"/></b>, reģ. nr.&#160;<xsl:value-of select="/documents/footer/firma_regnr"/>
+	</td>          
+</tr>
+<tr>
+    <td style="border-left:1px solid black; border-top:1px solid black; border-right:1px solid black;  font-size:10pt; font-family:Arsenal;">Vārds, uzvārds, p.k.: <b><xsl:value-of select="nimi"/></b>,&#160;<xsl:value-of select="//persoon_andmed[kood=$userid]/isikukood"/></td>
+	<td style="border-right:1px solid black; font-size:10pt; font-family:Arsenal;"  width="330">
+			<xsl:value-of select="/documents/footer/firma_aadress"/>&#160;<xsl:value-of select="/documents/footer/firma_aadress2"/></td>
+</tr>  
+<tr>
+    <td style="font-size:10pt; font-family:Arsenal;border-left:1px solid black; border-top:1px solid black; border-right:1px solid black" valign="top">
+        
+        <table width="330" cellpadding="0" cellspacing="0">
+            
+                <tr>
+                    <td height="20">Veids</td>
+                    <td>Dienas/Stundas/Gab.</td>
+                    <td width="80">Summa, EUR</td>
+                </tr>
+            <xsl:for-each select="/documents/document[persoon=$userid]/valemid/valem[@klass!='ATVILKUMS']">
+                <tr>
+                    <td><xsl:value-of select="nimetus"/></td>
+                    <td><xsl:value-of select="format-number(koef,'0.00')"/></td>
+                    <td><xsl:value-of select="format-number(bruto,'0.00')"/></td>
+                </tr>
+            
+            </xsl:for-each>
+             <tr>
+                    <td><b>KOPĀ</b></td>
+                    <td>&#160;</td>
+                    <td style="font-weight:bold;"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid]/valemid/valem/bruto),'0.00')"/></td>
+                </tr>
+        </table>
+    
+    </td>
+    <td style="border-right:1px solid black; border-top:1px solid black; font-size:10pt; font-family:Arsenal;" valign="top">
+    <table width="330" cellpadding="0" cellspacing="0">
+             <xsl:variable name="userid2" select="persoon"/>
+		<xsl:variable name="neapl_ien" select="sum(/documents/document[persoon=$userid2]/valemid/valem/maks[@klass='IIN']/@maksuvaba)"/>
+                <tr>
+                    <td colspan="2" align="center" height="20">Nodokļu aprēķins, EUR</td>
+                </tr>
+        
+                <tr>
+                    <td>Sociālais nodoklis:</td>
+                    <td width="80">
+			<xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/maks[(@klass='SOC_DN') and (.&lt;0 or .&gt;0)]),'0.00')"/></td>
+               
+                </tr>
+        <tr>      <td>Ienākuma nodoklis:</td>
+                    <td><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/maks[(@klass='IIN') and .!='']),'0.00')"/></td></tr>
+          <tr>      <td>Neapliekamais ienākums:</td>
+                    <td>
+		  <xsl:choose>
+		   <xsl:when test="$neapl_ien>0">
+		  <xsl:value-of select="format-number($neapl_ien,'0.00')"/>
+		    </xsl:when>
+			<xsl:otherwise>0.00</xsl:otherwise>
+		  </xsl:choose>
+		  </td></tr>
+        <tr>      <td><b>Kopā:</b></td>
+                    <td style="font-weight:bold;"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/maks[(@klass='SOC_DN') and (.&lt;0 or .&gt;0)]) + sum(/documents/document[persoon=$userid2]/valemid/valem/maks[(@klass='IIN') and .!='']),'0.00')"/></td></tr>
+        </table>
+    </td>
+      </tr>
+      <tr>
+        <td style="font-size:10pt; font-family:Arsenal;border-left:1px solid black; border-top:1px solid black; border-right:1px solid black" valign="top">
+        <table width="330" cellpadding="0" cellspacing="0">
+             <xsl:variable name="userid2" select="persoon"/>
+        
+                <tr>
+                    <td>Kopā neto:</td>
+		  <td>&#160;</td>
+                    <td width="80"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/neto),'0.00')"/></td>
+               
+                </tr>
+<xsl:variable name="advance">
+<xsl:value-of select="format-number(msxsl:node-set($avansi)/avansi/avanss[persona=$userid]/summa, '0.00')"/>
+</xsl:variable>
+<xsl:variable name="ieturejums">
+<xsl:value-of select="format-number(msxsl:node-set($ietur)/ieturejumi/ieturejums[persona=$userid]/summa, '0.00')"/>
+</xsl:variable>
+	<xsl:choose>
+                            <xsl:when test="$advance &gt; 0.00000001">
+       		<tr><td>Izmaksāts avanss:</td>
+		<td>&#160;</td>
+       		<td> <xsl:value-of select="format-number($advance,'0.00')"/>
+		</td></tr></xsl:when>
+  			<xsl:when test="$ieturejums!='NaN'">
+       		<tr><td>Ieturējums:</td>
+		<td>&#160;</td>
+       		<td> <xsl:value-of select="format-number($ieturejums,'0.00')"/>
+		</td></tr></xsl:when>
+	</xsl:choose>
+          <tr>      
+		<td><b>Summa izmaksai:</b></td>
+		<td>&#160;</td>
+		<td style="font-weight:bold;">
+                        <xsl:choose>
+                            <xsl:when test="$advance!='NaN' and $advance &gt; 0.00000001"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/neto) - $advance,'0.00')"/></xsl:when>
+                             <xsl:when test="$advance='NaN'"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/neto),'0.00')"/></xsl:when>
+                             <xsl:when test="$advance &lt; '-0.0000000001'"><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid2]/valemid/valem/neto),'0.00')"/></xsl:when>
+                        </xsl:choose>                       
+                        </td></tr>
+        </table>
+          </td>
+        <td style="border-right:1px solid black; border-top:1px solid black; font-size:10pt; font-family:Arsenal;" valign="middle">
+            <table width="330" cellpadding="0" cellspacing="0">
+                <tr>
+                    <td>Darba devēja algas nodoklis:</td>
+                    <td width="80">
+			<xsl:value-of select="format-number(sum(/documents/document[persoon=$userid]/valemid/valem/maks[(@klass='SOC_DD') and (.&lt;0 or .&gt;0)]),'0.00')"/></td>
+                </tr>
+	       <tr>
+                    <td>Uzņēmējdarbības riska nodeva:</td>
+                    <td><xsl:value-of select="format-number(sum(/documents/document[persoon=$userid]/valemid/valem/maks[(@klass='RISK') and .!='']),'0.00')"/></td>
+                </tr>
+
+            </table>
+        </td>
+</tr>
+ <tr>
+                    <td colspan="2" style="border-top:1px solid black">&#160;</td>
+                </tr>
+                <tr>
+                    <td colspan="2" style="border-top:1px dashed black">&#160;</td>
+                </tr>
+      <xsl:variable name="pagebreak">
+      <xsl:choose>
+       <xsl:when test="position()=$item_per_first_page">ir</xsl:when>
+       <xsl:otherwise>
+        <xsl:if test="(((position())-($item_per_first_page)) mod $item_per_other_pages)=0">ir</xsl:if>
+       </xsl:otherwise>
+      </xsl:choose>
+     </xsl:variable>
+     
+     <xsl:variable name="page">
+      <xsl:choose>
+       <xsl:when test="position()=$item_per_first_page">2</xsl:when>
+       <xsl:otherwise>
+        <xsl:value-of select="floor(((position())-($item_per_first_page)+1) div $item_per_other_pages)+2" />
+       </xsl:otherwise>
+      </xsl:choose>
+     </xsl:variable>
+     
+     <xsl:if test="$pagebreak!=''">
+     
+      <script language="JavaScript" type="text/javascript"><![CDATA[
+       resetCurrent();
+      ]]></script>
+
+      <xsl:text disable-output-escaping="yes">&lt;/table&gt;</xsl:text>
+      <xsl:text disable-output-escaping="yes">&lt;/div&gt;</xsl:text>
+      
+      <div class="pbreak"> &#160;</div>
+      
+         <xsl:text disable-output-escaping="yes">&lt;div class="container"&gt;</xsl:text>
+      <xsl:text disable-output-escaping="yes">&lt;table  width="660" cellpadding="0" cellspacing="0" align="center" class="main"&gt;</xsl:text>
+         <tr><td colspan="2" height="20">&#160;</td></tr>
+     </xsl:if>
+         </xsl:for-each>
+                
+            </table>
+        </body>
+    
+    </html>
+</xsl:template>
+
+</xsl:stylesheet>
