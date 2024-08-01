@@ -8,7 +8,7 @@ ALTER PROCEDURE [dbo].[int_hooldus_klient_send_payment_reminder_emails]
     @aeg2 DATETIME,
     @obj NVARCHAR(510) = NULL,
     @paymentTerm NVARCHAR(64) = NULL,
-    @isApproved BIT = NULL,
+    @isApproved BIT = 0,
     @sendEmails BIT = 0,
     @testMode BIT = 0
 AS
@@ -20,8 +20,7 @@ BEGIN
             @subjectEmail NVARCHAR(MAX),
             @emailTxt NVARCHAR(MAX),
             @firmaemail NVARCHAR(MAX),
-            @testEmail NVARCHAR(100) = 'balodis.madars@gmail.com',
-            @attachmentName NVARCHAR(MAX); -- Declare the variable
+            @testEmail NVARCHAR(100) = 'Ilze.Avotina@myfitness.lv';
 
     -- Set variable values
     SELECT @attachmentUrl = 'https://login.directo.ee/' + DB_NAME() + '/yld_print.asp?mida=xsl&row=4444&moodul=arve&number=rekinsnr&ver=&print=yes&mail=&rns=&aspdf=1';
@@ -64,7 +63,8 @@ BEGIN
         SubjectEmail NVARCHAR(MAX),
         AttachmentUrl NVARCHAR(MAX),
         AttachmentName NVARCHAR(MAX),
-        EmailBody NVARCHAR(MAX)
+        EmailBody NVARCHAR(MAX),
+        CountInEvents INT
     );
 
     -- Insert data into temporary table
@@ -81,8 +81,9 @@ BEGIN
         CASE WHEN a.kinnitatud = 1 THEN 'jā' ELSE 'nē' END AS IrApstiprinats,
         @subjectEmail AS SubjectEmail,
         REPLACE(@attachmentUrl, 'rekinsnr', CONVERT(NVARCHAR(MAX), a.number)) AS AttachmentUrl,
-        a.klient_nimi + '_' + CONVERT(NVARCHAR(MAX), a.number) + N' rekins.pdf' AS AttachmentName,
-        REPLACE(REPLACE(@emailTxt, '@firmaninimi', @companyName), '@firmaemail', @firmaemail) AS EmailBody
+        a.klient_nimi + '_' + CONVERT(NVARCHAR(MAX), a.number) + N' rēķins.pdf' AS AttachmentName,
+        REPLACE(REPLACE(@emailTxt, '@firmaninimi', @companyName), '@firmaemail', @firmaemail) AS EmailBody,
+        ISNULL((SELECT COUNT(*) FROM events WHERE sisu = 'Invoice' AND src_number = CONVERT(NVARCHAR(64), a.number) AND src_unit = 'arve'), 0) AS CountInEvents
     FROM 
         mr_arved a
     WHERE 
@@ -90,9 +91,22 @@ BEGIN
         AND a.ts BETWEEN @aeg1 AND @aeg2
         AND (@obj IS NULL OR a.objekt = @obj)
         AND (@paymentTerm IS NULL OR a.tingimus = @paymentTerm)
-        AND (@isApproved IS NULL OR (@isApproved = 1 AND a.kinnitatud = 1) OR (@isApproved = 0 AND (a.kinnitatud = 0 OR a.kinnitatud IS NULL)));
+        AND (@isApproved = 0 OR (@isApproved = 1 AND a.kinnitatud = 1))
+        AND NOT EXISTS (SELECT 1 FROM events e WHERE e.src_number = CONVERT(NVARCHAR(64), a.number) AND e.src_unit = 'arve' AND e.sisu = 'Invoice');
+
 
     -- Always display client data
+
+    -- Declare a variable to store the total count
+    DECLARE @TotalCount INT;
+
+    -- Calculate the total count and store it in the variable
+    SELECT @TotalCount = COUNT(*) FROM #TempClientData;
+
+    -- Display the total count as a "Kopā" row in one column
+    SELECT 'Kopā: ' + CAST(@TotalCount AS NVARCHAR(10)) + ' ieraksti';
+
+
     SELECT 
         RN,
         RekinaNumurs,
@@ -105,24 +119,49 @@ BEGIN
         IrApstiprinats
     FROM #TempClientData;
 
-    -- Insert into mail_out table instead of sending emails
-    INSERT INTO mail_out (from_email, from_nimi, to_email, subjekt, ts, cu, manuse_url, manuse_nimi, sisu)
-    SELECT 
-        @firmaemail,      -- From email
-        @companyName,     -- From name
-        'balodis.madars@gmail.com', -- To email (Replace with actual email variable if needed)
-        @subjectEmail,    -- Subject of the email
-        GETDATE(),        -- Timestamp of the insertion
-        'AIM',            -- Custom user or identifier
-        AttachmentUrl,    -- Attachment URL
-        AttachmentName,   -- Attachment name
-        EmailBody         -- Email body/content
-    FROM #TempClientData;
+    IF @sendEmails = 1
+    BEGIN
+        DECLARE @EmailsSent INT = 0;
+
+        -- Insert into events table
+        INSERT INTO events (tyyp, status, sisu, k_email, aeg1, ts, aeg_loodud, cu, looja, feedback, src_number, src_unit)
+        SELECT 
+            'MAIL',
+            'SENT',
+            'Invoice',
+            CASE WHEN @testMode = 1 THEN @testEmail ELSE Epasts END,
+            GETDATE(),
+            GETDATE(),
+            GETDATE(),
+            'Debt reminder',
+            'Debt reminder',
+            SubjectEmail,
+            RekinaNumurs,
+            'arve'
+        FROM #TempClientData 
+        WHERE CountInEvents = 0;
+
+        SET @EmailsSent = @@ROWCOUNT;
+
+        -- Insert into mail_out table
+        INSERT INTO mail_out (from_email, from_nimi, to_email, subjekt, ts, cu, manuse_url, manuse_nimi, sisu)
+        SELECT 
+            @firmaemail,
+            @companyName,
+            CASE WHEN @testMode = 1 THEN @testEmail ELSE Epasts END,
+            SubjectEmail,
+            GETDATE(),
+            'AIM',
+            AttachmentUrl,
+            AttachmentName,
+            EmailBody
+        FROM #TempClientData
+        WHERE CountInEvents = 0 AND (@testMode = 1 OR Epasts != 'N/A');
+
+        -- Modified result message as requested
+        SELECT CAST(@EmailsSent AS NVARCHAR(10)) + ' E-pasti ir sagatavoti nosūtīšanai' AS Result;
+    END
 
     -- Clean up
     DROP TABLE #TempClientData;
 END;
-
-
-
-select * from mail_out order by ts desc
