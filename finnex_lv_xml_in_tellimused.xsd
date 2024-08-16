@@ -1,0 +1,78 @@
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:sql="urn:schemas-microsoft-com:mapping-schema">
+
+<xsd:element name="orders" sql:is-constant="true">
+	<xsd:complexType>
+		<xsd:sequence>
+			<xsd:element name="order" sql:relation="in_tell_tellimused" >
+				<xsd:complexType>
+					<xsd:sequence>
+						<xsd:sequence>
+							<xsd:element ref="line" sql:relationship="REL" />
+						</xsd:sequence>
+					</xsd:sequence>
+					<xsd:attribute name="appkey"  sql:field="appkey" type="xsd:string" />
+					<xsd:attribute name="number" type="xsd:int" sql:field="number" /><!--unikaalsuse kontroll, Directo number-->
+					<xsd:attribute name="date" sql:field="aeg" type="xsd:dateTime" sql:datatype="dateTime" />
+					<xsd:attribute name="customer_code" type="xsd:string" sql:field="klient_kood" />
+					<xsd:attribute name="customer_name" type="xsd:string" sql:field="klient_nimi" />
+					<xsd:attribute name="paymentterm" type="xsd:string" sql:field="tingimus" />
+					<xsd:attribute name="referenceno" type="xsd:string" sql:field="lisa_field1" />
+					<xsd:attribute name="deliverymethod" type="xsd:string" sql:field="lahetusviis" />
+					<xsd:attribute name="stock" type="xsd:string" sql:field="ladu" />
+					<xsd:attribute name="vatregno" sql:field="kmregnumber" type="xsd:string" />
+					
+					<xsd:attribute name="address1" type="xsd:string" sql:field="aadress1" />
+					<xsd:attribute name="address2" type="xsd:string" sql:field="aadress2" />
+					<xsd:attribute name="address3" type="xsd:string" sql:field="aadress3" />
+					<xsd:attribute name="deliveryname" type="xsd:string" sql:field="klientnimi_lahetusel" />
+					<xsd:attribute name="deladdress1" type="xsd:string" sql:field="lahaadress1" />
+					<xsd:attribute name="deladdress2" type="xsd:string" sql:field="lahaadress2" />
+					<xsd:attribute name="deladdress3" type="xsd:string" sql:field="lahaadress3" />
+					<xsd:attribute name="comment" type="xsd:string" sql:field="kommentaar" />
+
+                    <!-- New Customer Fields -->
+                    <xsd:attribute name="name" type="xsd:string" sql:field="customername"/>
+                    <xsd:attribute name="type" type="xsd:int" sql:field="customertype"/>
+                    <xsd:attribute name="email" type="xsd:string" sql:field="email"/>
+                    <xsd:attribute name="phone" type="xsd:string" sql:field="phone"/>
+                    <xsd:attribute name="address" type="xsd:string" sql:field="customeraddress"/>
+                    <xsd:attribute name="vatRegNumber" type="xsd:string" sql:field="vatRegNumber"/>
+                    <xsd:attribute name="regNumber" type="xsd:string" sql:field="regNumber"/>
+                    <xsd:attribute name="vatZone" type="xsd:int" sql:field="vatZone"/>
+
+				</xsd:complexType>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+</xsd:element>
+
+<xsd:annotation>
+  <xsd:appinfo>
+    <sql:relationship name="REL"
+          parent="in_tell_tellimused"
+          parent-key="number"
+          child="in_tell_tellimused_read"
+          child-key="number" />
+  </xsd:appinfo>
+</xsd:annotation>
+<xsd:element name="line" sql:relation="in_tell_tellimused_read" >
+	<xsd:complexType>
+		<xsd:attribute name="item" type="xsd:string" sql:field="artikkel" /><!--Directo artiklikood-->
+		<xsd:attribute name="variant" type="xsd:string" sql:field="variant" /><!--Directo artiklikood-->
+		<xsd:attribute name="name" type="xsd:string" sql:field="nimetus" />
+		<xsd:attribute name="qty" type="xsd:decimal" sql:field="kogus" />
+		<xsd:attribute name="vatcode" type="xsd:string" sql:field="kmkood" /><!--saata tuleb kehtiv Directo KM kood, mitte KM summa-->
+		<xsd:attribute name="price" type="xsd:decimal" sql:field="hind" /><!--Hind ilma käibemaksuta-->
+		<xsd:attribute name="rowsum" type="xsd:decimal" sql:field="rsum" /><!--Hind ilma käibemaksuta-->
+
+        <xsd:attribute name="text1" type="xsd:string" sql:field="tekst1" />
+        <xsd:attribute name="text2" type="xsd:string" sql:field="tekst2" />
+        <xsd:attribute name="text3" type="xsd:string" sql:field="tekst3" />
+        <xsd:attribute name="text4" type="xsd:string" sql:field="tekst4" />
+
+        <xsd:attribute name="rn" type="xsd:int" sql:field="rn" /><!--rea number dokumendi piires, järjestikused alates 1-->
+		<xsd:attribute name="rr" type="xsd:int" sql:field="rv" /><!--reaviide. Kui ei kasutata seotud ridu, siis sama kui rn-->
+	</xsd:complexType>
+</xsd:element>
+
+</xsd:schema>
